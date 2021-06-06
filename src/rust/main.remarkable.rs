@@ -12,8 +12,8 @@ use armrest::{ui, gesture, ml};
 use libremarkable::input::ev::EvDevContext;
 use libremarkable::input::multitouch::MultitouchEvent;
 use libremarkable::input::{InputDevice, InputEvent};
-use std::{fs, process, thread};
-use armrest::ui::{Widget, Text, Frame, BoundingBox, Render};
+use std::{fs, process, thread, mem};
+use armrest::ui::{Widget, Text, Frame, BoundingBox, Action, Split};
 use clap::{App, Arg};
 use std::path::Path;
 use std::fs::{File, OpenOptions};
@@ -31,14 +31,15 @@ use crate::traits::UI;
 use crate::options::Options;
 use crate::zmachine::Zmachine;
 use armrest::gesture::{Gesture, Tool};
-use libremarkable::framebuffer::common::{color, waveform_mode, display_temp, dither_mode, DRAWING_QUANT_BIT};
-use libremarkable::framebuffer::refresh::PartialRefreshMode;
 use armrest::ink::Ink;
 use std::time::Instant;
 use armrest::ml::{Recognizer, Spline, LanguageModel};
 use libremarkable::cgmath::{Point2, Vector2};
+use libremarkable::framebuffer::common::color;
+use std::collections::BTreeSet;
+use std::ops::Bound;
 
-enum Action {
+enum VmOutput {
     Print(String),
     Save(Vec<u8>),
     Restore,
@@ -46,7 +47,7 @@ enum Action {
 
 
 struct RmUI {
-    channel: mpsc::Sender<Action>,
+    channel: mpsc::Sender<VmOutput>,
 }
 
 impl UI for RmUI {
@@ -60,7 +61,7 @@ impl UI for RmUI {
 
     fn print(&mut self, text: &str) {
         eprintln!("print: {}", text);
-        self.channel.send(Action::Print(text.to_string()));
+        self.channel.send(VmOutput::Print(text.to_string()));
     }
 
     fn debug(&mut self, text: &str) {
@@ -69,7 +70,7 @@ impl UI for RmUI {
 
     fn print_object(&mut self, object: &str) {
         eprintln!("print_obj: {}", object);
-        self.channel.send(Action::Print(object.to_string()));
+        self.channel.send(VmOutput::Print(object.to_string()));
     }
 
     fn set_status_bar(&self, left: &str, right: &str) {
@@ -93,9 +94,9 @@ impl UI for RmUI {
         let maybe_action = match mtype {
             "save" => {
                 let (_, save) = serde_json::from_str::<(String, String)>(msg).unwrap();
-                Some(Action::Save(base64::decode(&save).unwrap()))
+                Some(VmOutput::Save(base64::decode(&save).unwrap()))
             },
-            "restore" =>  Some(Action::Restore),
+            "restore" =>  Some(VmOutput::Restore),
             _ => None,
         };
 
@@ -106,7 +107,7 @@ impl UI for RmUI {
 }
 
 #[derive(Debug)]
-struct Dict(Vec<String>);
+struct Dict(BTreeSet<String>);
 
 impl Dict {
     const VALID: f32 = 1.0;
@@ -117,20 +118,25 @@ impl Dict {
     // worse than it is.
     // The right value here will depend on both the quality of the model,
     // dictionary size, and some more subjective things.
-    const INVALID: f32 = 0.0;
+    const INVALID: f32 = 0.001;
+
+    fn contains_prefix(&self, prefix: &str) -> bool {
+        self.0.range(prefix.to_string()..).next().map_or(false, |c| c.starts_with(prefix))
+    }
 }
 
 impl LanguageModel for &Dict {
+
     fn odds(&self, input: &str, ch: char) -> f32 {
         let Dict(words) = self;
 
         // TODO: use the real lexing rules from https://inform-fiction.org/zmachine/standards/z1point1/sect13.html
-        if !ch.is_ascii_lowercase() && !(ch == ' ') {
+        if !ch.is_ascii_lowercase() && !(" .,".contains(ch)) {
             return Dict::INVALID;
         }
 
         let word_start =
-            input.rfind(' ').map(|i| i+1).unwrap_or(0);
+            input.rfind(|c| " .,".contains(c)).map(|i| i+1).unwrap_or(0);
 
         let prefix = &input[word_start..];
 
@@ -139,152 +145,78 @@ impl LanguageModel for &Dict {
             return Dict::VALID;
         }
 
-        // If the prefix is in the dictionary, and none of the suffixes of
-        // that prefix start with this character, then penalize the char.
-        let suffixes: Vec<&str> =
-            words.iter()
-                .filter(|w| w.starts_with(prefix))
-                .map(|w| w.split_at(prefix.len()).1)
-                .collect();
+        if " .,".contains(ch) {
+            return if words.contains(prefix) { Dict::VALID } else { Dict::INVALID };
+        }
 
-        if suffixes.is_empty() {
-            Dict::VALID
-        } else {
-            let has_valid_extension =
-                suffixes.iter().any(|s| {
-                    if s.is_empty() {
-                        ch == ' '
-                    } else {
-                        s.chars().next() == Some(ch)
-                    }
-                });
-
-            if has_valid_extension {
+        if self.contains_prefix(prefix) {
+            let mut extended = prefix.to_string();
+            extended.push(ch);
+            if self.contains_prefix(&extended) {
                 Dict::VALID
-            } else {
+            }
+            else {
                 Dict::INVALID
+            }
+        } else {
+            Dict::VALID
+        }
+    }
+}
+
+enum Element {
+    Break,
+    Line(ui::Text<'static>),
+    Input(ui::Text<'static>, ui::InputArea)
+}
+
+impl Widget for Element {
+    type Message = Ink;
+
+    fn bounds(&self) -> Vector2<i32> {
+        match self {
+            Element::Break => Vector2::new(0, 44),
+            Element::Line(t) => t.bounds(),
+            Element::Input(_, _) => Vector2::new(500, 88),
+        }
+    }
+
+    fn update(&mut self, action: Action) -> Option<Self::Message> {
+        match self {
+            Element::Break => None,
+            Element::Line(t) => None,
+            Element::Input(p, i) => {
+                i.update(action.translate(-Vector2::new(p.bounds().x, 0)))
+            },
+        }
+    }
+
+    fn render(&self, mut sink: Frame) {
+        match self {
+            Element::Break => {}
+            Element::Line(t) => {
+                t.render(sink);
+            }
+            Element::Input(p, i) => {
+                let mut prompt_frame = sink.split(Split::Horizontal(p.bounds().x));
+                prompt_frame.split(Split::Vertical(22));
+                p.render(prompt_frame);
+                i.render(sink);
             }
         }
     }
 }
 
-struct Paged<T> {
-    empty: T,
-    current_page: usize,
-    pages: Vec<T>,
-}
-
-impl<T : Widget> Paged<T> {
-    pub fn new(widget: T) -> Paged<T> where T:Clone {
-        Paged {
-            empty: widget.clone(),
-            current_page: 0,
-            pages: vec![widget],
-        }
-    }
-
-    pub fn clear(&mut self) where T:Clone {
-        self.current_page = 0;
-        self.pages = vec![self.empty.clone()];
-    }
-
-    pub fn page_relative(&mut self, count: isize, frame: &mut impl Render) {
-        if count == 0 {
-            return;
-        }
-
-        let desired_page =
-            (self.current_page as isize + count)
-                .max(0)
-                .min(self.pages.len() as isize - 1)
-                as usize;
-
-        if desired_page == self.current_page {
-            eprintln!("Already on the correct page!");
-            return;
-        }
-        self.current_page = desired_page;
-
-        let page = &self.pages[self.current_page];
-        frame.clear_bounds(page.bounds());
-        page.render(frame);
-    }
-}
-
-impl<T> Paged<ui::Stack<T>> {
-    pub fn push<R : Render>(&mut self, mut widget: T, frame: &mut R)
-        where
-            T: Widget + Clone,
-    {
-        // TODO: this function sucks
-        let mut page_count = self.pages.len();
-
-        let mut last_page = self.pages.last_mut().expect("Should never be empty!");
-        if last_page.remaining().height() < widget.bounds().height() {
-            self.pages.push(self.empty.clone());
-            page_count += 1;
-            last_page = self.pages.last_mut().unwrap();
-        }
-
-        if self.current_page + 1 == page_count {
-            last_page.push(widget, frame);
-        } else {
-            last_page.push(widget, &mut ());
-        }
-    }
-}
-
-impl<T: Widget> Widget for Paged<T> {
-    type Message = Option<T::Message>;
-
-    fn bounds(&self) -> BoundingBox {
-        self.empty.bounds()
-    }
-
-    fn update<R: Render>(&mut self, action: &ui::Action, sink: &mut R) -> Option<Self::Message> {
-        match action {
-            ui::Action::Touch(touch) if touch.length() > 100.0 => {
-                eprintln!("{:?} {}", touch, touch.length());
-                let delta_x = touch.end.x - touch.start.x;
-                if delta_x > 80.0 {
-                    eprintln!("Swipe right - go back!");
-                    self.page_relative(-1, sink);
-                } else if delta_x < -80.0 {
-                    eprintln!("Swipe right - go forward!");
-                    self.page_relative(1, sink);
-                }
-                None
-            },
-            _ => {
-                self.pages[self.current_page].update(&action, sink).map(|m| Some(m))
-            },
-        }
-    }
-
-    fn render<R: Render>(&self, sink: &mut R) {
-        self.pages[self.current_page].render(sink)
-    }
-
-    fn translate(&mut self, vec: Vector2<i32>) {
-        self.empty.translate(vec);
-        for page in &mut self.pages {
-            page.translate(vec);
-        }
-    }
-}
-
-struct Game<'a, 'b> {
+struct Game<'b> {
     zvm: Zmachine,
-    font: Font<'a>,
-    actions: mpsc::Receiver<Action>,
+    font: Font<'static>,
+    actions: mpsc::Receiver<VmOutput>,
     buffer: String,
-    body: Paged<ui::Stack<ui::Text<'a>>>,
-    // status_left: ui::Text<'a>,
-    frame: ui::Frame,
+    body: ui::Spaced<ui::Paged<ui::Stack<Element>>>,
     save_path: Option<&'b Path>,
 }
 
-impl Game<'_, '_> {
+impl Game<'_> {
 
     pub fn restore(&mut self) {
         let path = self.save_path.expect("Restoring without a save path");
@@ -298,41 +230,68 @@ impl Game<'_, '_> {
     pub fn drain_actions(&mut self) {
         while let Ok(action) = self.actions.try_recv() {
             match action {
-                Action::Print(result) => {
-                    let mut split = result.split('\n');
-                    self.buffer.push_str(split.next().unwrap());
-
-                    while let Some(more) = split.next() {
-                        for widget in ui::Text::wrap(&self.font, &self.buffer, 1000, 44) {
-                            self.body.push(widget, &mut self.frame);
-                        }
-                        self.buffer.clear();
-                        self.buffer.push_str(more);
-                    }
+                VmOutput::Print(result) => {
+                    self.buffer.push_str(&result);
                 }
-                Action::Save(data) => {
+                VmOutput::Save(data) => {
                     if let Some(path) = &self.save_path {
                         fs::write(path, data).unwrap();
                     }
                 }
-                Action::Restore => {
+                VmOutput::Restore => {
                     self.restore();
-                    self.frame.clear();
-                    self.body.clear();
+                    // self.body.clear();
                     self.zvm.step();
                 }
             }
         }
 
-        // TODO: turn this into a prompt instead!
-        if !self.buffer.is_empty() {
-            for widget in ui::Text::wrap(&self.font, &self.buffer, 1000, 44) {
-                self.body.push(widget, &mut self.frame);
+        let paragraphs: Vec<_> = self.buffer.trim_end_matches(">").trim_end().split("\n\n").collect();
+
+        // self.buffer.rfind("\n")
+
+        let mut first = true;
+        for paragraph in paragraphs {
+            if !first {
+                self.body.value.push(Element::Break);
             }
-            self.buffer.clear();
+
+            for line in paragraph.split("\n") {
+                for widget in ui::Text::wrap(&self.font, line, self.body.value.bounds().x, 44) {
+                    self.body.value.push(Element::Line(widget));
+                }
+            }
+
+            first = false;
         }
 
-        self.frame.refresh();
+        let mut widget = ui::Text::layout(&self.font, ">", 44);
+        let prompt_len = widget.bounds().x;
+        self.body.value.push(Element::Input(widget, ui::InputArea::new(Vector2::new(600 - prompt_len, 88))));
+
+
+        // if let Some((last_paragraph, others)) = paragraphs.split_last() {
+        //     let mut first = true;
+        //     for paragraph in others {
+        //         if !first {
+        //             self.body.value.push(Element::Break);
+        //         }
+        //
+        //         for line in paragraph.split("\n") {
+        //             for widget in ui::Text::wrap(&self.font, line, self.body.value.bounds().x, 44) {
+        //                 self.body.value.push(Element::Line(widget));
+        //             }
+        //         }
+        //
+        //         first = false;
+        //     }
+        //
+        //     let mut widget = ui::Text::layout(&self.font, last_paragraph.trim(), 44);
+        //     let prompt_len = widget.bounds().x;
+        //     self.body.value.push(Element::Input(widget, ui::InputArea::new(Vector2::new(600 - prompt_len, 88))));
+        // }
+
+        self.buffer.clear();
     }
 }
 
@@ -387,13 +346,10 @@ fn main() {
 
     let font: Font<'static> = Font::from_bytes(font_bytes).unwrap();
 
-    let mut frame = ui::Frame::from_framebuffer(core::Framebuffer::from_path("/dev/fb0"));
+    let mut screen = ui::Screen::new(core::Framebuffer::from_path("/dev/fb0"));
+    screen.clear();
 
-    frame.clear();
-
-    let mut stack = Paged::new(ui::Stack::<Text<'static>>::new(frame.bounds().pad(100)));
-
-    frame.refresh();
+    let mut stack = ui::Paged::new(ui::Stack::<Element>::new(screen.size() - Vector2::new(400, 200)));
 
     let (vm_tx, vm_rx) = mpsc::channel();
 
@@ -404,7 +360,7 @@ fn main() {
 
     let mut zvm = Zmachine::new(data, Box::new(ui), opts);
 
-    let dict = Dict(zvm.get_dictionary());
+    let dict = Dict(zvm.get_dictionary().drain(..).collect::<BTreeSet<String>>());
 
     let mut buffer = String::new();
 
@@ -413,8 +369,7 @@ fn main() {
         font,
         actions: vm_rx,
         buffer,
-        body: stack,
-        frame,
+        body: ui::Spaced::new(Vector2::new(100, 100), stack),
         save_path
     };
 
@@ -422,8 +377,8 @@ fn main() {
         game.restore()
     }
     game.zvm.step();
-
     game.drain_actions();
+    screen.draw(&game.body);
 
     let (input_tx, input_rx) = mpsc::channel::<InputEvent>();
     // Send all input events to input_rx
@@ -456,9 +411,7 @@ fn main() {
                 .unwrap();
 
             if let Ok(log) = &mut ink_log {
-                let mut ink_str = String::new();
-                i.to_string(&mut ink_str);
-                writeln!(log, "{}\t{}", &string[0].0, ink_str).expect("why not?");
+                writeln!(log, "{}\t{}", &string[0].0, i).expect("why not?");
                 log.flush().expect("why not?");
             }
 
@@ -477,23 +430,17 @@ fn main() {
                 ink_tx
                     .send((ink.clone(), gestures.ink_start(), ink.len()))
                     .unwrap();
+
+                game.body.update(ui::Action::Ink(ink.clone()));
+                screen.draw(&game.body)
             }
             Some(Gesture::Stroke(Tool::Pen, from, to)) => {
-                let rect = game.frame.fb.draw_line(from, to, 3, color::BLACK);
-                game.frame.fb.partial_refresh(
-                    &rect,
-                    PartialRefreshMode::Wait,
-                    waveform_mode::WAVEFORM_MODE_DU,
-                    display_temp::TEMP_USE_REMARKABLE_DRAW,
-                    dither_mode::EPDC_FLAG_USE_DITHERING_ALPHA,
-                    DRAWING_QUANT_BIT,
-                    false,
-                );
+                screen.stroke(from, to);
             }
             Some(Gesture::Tap(touch)) => {
                 eprintln!("{:?} {}", touch, touch.length());
-                game.body.update(&ui::Action::Touch(touch), &mut game.frame);
-                game.frame.refresh();
+                game.body.update(ui::Action::Touch(touch));
+                screen.draw(&game.body)
             }
             _ => {}
         }
@@ -512,6 +459,7 @@ fn main() {
                     return;
                 }
                 game.drain_actions();
+                screen.draw(&game.body);
             }
         }
     }

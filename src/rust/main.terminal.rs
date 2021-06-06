@@ -31,10 +31,10 @@ mod traits;
 mod ui_terminal;
 mod zmachine;
 
-use options::Options;
-use traits::UI;
-use ui_terminal::TerminalUI;
-use zmachine::Zmachine;
+use crate::options::Options;
+use crate::traits::UI;
+use crate::ui_terminal::TerminalUI;
+use crate::zmachine::Zmachine;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

@@ -13,6 +13,16 @@
 
 #### A z-machine (interpreter) for Infocom-era text adventure games like Zork
 
+*This is a fork of the original Encrusted interpreter,
+rebuilt for the reMarkable tablet using
+[armrest](https://github.com/bkirwi/armrest).
+The original README contents continue after the break.*
+
+To build this code, you'll need to have the `armrest` repo checked out.
+I recommend using the `./build.rm` script in that repo to build this one too.
+
+---
+
 Runs in a web interface or directly in a terminal.
 Built with Rust and WebAssembly (`wasm32-unknown-unknown`).
 

@@ -12,9 +12,9 @@ edition = "2018"
 name = "encrusted"
 path = "src/rust/main.remarkable.rs"
 
-#[[bin]]
-#name = "encrusted"
-#path = "src/rust/main.terminal.rs"
+[[bin]]
+name = "encrusted-term"
+path = "src/rust/main.terminal.rs"
 
 #[lib]
 #crate-type = ["cdylib"]
@@ -42,7 +42,8 @@ clap = "2.32.0"
 lazy_static = "1.2.0"
 regex = "1.1.0"
 term_size = "0.3.1"
-armrest = { path = "../rm-rs" }
+armrest = { path = "../armrest" }
 libremarkable = "0.4.3"
 rusttype = "0.8.2"
-
+chrono = "0.4.19"
+#radix_trie = "0.2.1"

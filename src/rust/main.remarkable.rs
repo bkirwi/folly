@@ -44,11 +44,10 @@ const TOP_MARGIN: i32 = 200;
 const LINE_HEIGHT: i32 = 44;
 const PROMPT_WIDTH: i32 = 22; // For the prompt etc.
 const LINE_LENGTH: i32 = 1000;
-const TEXT_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
+const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
 
 enum VmOutput {
     Print(String),
-    // PrintObject(String),
     Save(Vec<u8>),
     Restore,
 }
@@ -127,8 +126,8 @@ impl Dict {
     // dictionary size, and some more subjective things.
     const INVALID: f32 = 0.001;
 
-    fn contains_prefix(&self, prefix: &str) -> bool {
-        self.0.range(prefix.to_string()..).next().map_or(false, |c| c.starts_with(prefix))
+    fn contains_prefix(&self, prefix: &String) -> bool {
+        self.0.range::<String, _>(prefix..).next().map_or(false, |c| c.starts_with(prefix))
     }
 }
 
@@ -156,10 +155,10 @@ impl LanguageModel for &Dict {
             return if words.contains(prefix) { Dict::VALID } else { Dict::INVALID };
         }
 
-        if self.contains_prefix(prefix) {
-            let mut extended = prefix.to_string();
-            extended.push(ch);
-            if self.contains_prefix(&extended) {
+        let mut prefix_string = prefix.to_string();
+        if self.contains_prefix(&prefix_string) {
+            prefix_string.push(ch);
+            if self.contains_prefix(&prefix_string) {
                 Dict::VALID
             } else {
                 Dict::INVALID
@@ -558,7 +557,7 @@ impl Game {
                                 session.zvm.handle_input(text);
                                 if session.advance() {
                                     // Start a new page unless the current page is empty
-                                    session.maybe_new_page(TEXT_HEIGHT);
+                                    session.maybe_new_page(TEXT_AREA_HEIGHT);
                                     let saves = session.load_saves().unwrap();
                                     session.restore_menu(saves, text_area_shape)
                                 };
@@ -600,7 +599,7 @@ impl Widget for Game {
     fn render(&self, mut frame: Frame<Msg>) {
         frame.split_off(Split::Top, self.bounds.top_left.y);
 
-        let mut body_frame = frame.split_off(Split::Top, TEXT_HEIGHT);
+        let mut body_frame = frame.split_off(Split::Top, TEXT_AREA_HEIGHT);
         body_frame.split_off(Split::Left, self.bounds.top_left.x);
         body_frame.on_input(Msg::Page);
         match &self.state {
@@ -668,7 +667,7 @@ fn main() {
 
     let page_bounds = BoundingBox::new(
         Point2::new(LEFT_MARGIN, TOP_MARGIN),
-        Point2::new(LEFT_MARGIN + LINE_LENGTH, TOP_MARGIN + TEXT_HEIGHT),
+        Point2::new(LEFT_MARGIN + LINE_LENGTH, TOP_MARGIN + TEXT_AREA_HEIGHT),
     );
 
     let mut ink_log = OpenOptions::new()

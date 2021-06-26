@@ -30,6 +30,7 @@ use crate::options::Options;
 use crate::traits::UI;
 use crate::zmachine::Zmachine;
 use std::io::SeekFrom::Start;
+use std::ffi::OsStr;
 
 mod buffer;
 mod frame;
@@ -118,7 +119,7 @@ struct Dict(BTreeSet<String>);
 impl Dict {
     const VALID: f32 = 1.0;
     // Tradeoff: you want this to be small, since any plausible input
-    // is likely to do something more useful than nothing at all.
+    // is likely to do something more useful than one the game doesn't understand.
     // However! If a word is not in the dictionary, then choosing a totally
     // implausible word quite far from the input may make the recognizer seem
     // worse than it is.
@@ -152,7 +153,7 @@ impl LanguageModel for &Dict {
 
         // If the current character is punctuation, we check that the prefix is a valid word
         if " .,".contains(ch) {
-            return if words.contains(prefix) { Dict::VALID } else { Dict::INVALID };
+            return if words.contains(prefix) || prefix.is_empty() { Dict::VALID } else { Dict::INVALID };
         }
 
         let mut prefix_string = prefix.to_string();
@@ -184,40 +185,70 @@ enum Msg {
 
 enum Element {
     Break,
-    Line(ui::Text<'static, Msg>),
+    Line(bool, ui::Text<'static, Msg>),
     Input(bool, ui::Text<'static, Msg>, ui::InputArea<Msg>),
+    GameEntry {
+        big_text: Text<'static, Msg>,
+        small_text: Text<'static, Msg>,
+    },
+}
+
+impl Element {
+    fn hmm(font: &Font<'static>, big_text: &str, small_text: &str, msg: Option<Msg>) -> Element {
+        Element::GameEntry {
+            big_text: Text::layout(&font, &big_text, LINE_HEIGHT * 4 / 3).on_touch(msg.clone()),
+            small_text: Text::layout(&font, &small_text, LINE_HEIGHT * 2 / 3).on_touch(msg)
+        }
+    }
 }
 
 impl Widget for Element {
     type Message = Msg;
 
-    fn bounds(&self) -> Vector2<i32> {
-        match self {
-            Element::Break => Vector2::new(0, LINE_HEIGHT),
-            Element::Line(t) => t.bounds() + Vector2::new(PROMPT_WIDTH, 0),
-            Element::Input(_, _, i) => i.bounds() + Vector2::new(PROMPT_WIDTH, 0),
-        }
+    fn size(&self) -> Vector2<i32> {
+        let width = PROMPT_WIDTH + LINE_LENGTH;
+        let height = match self {
+            Element::Break => LINE_HEIGHT,
+            Element::Line(_, t) => t.size().y,
+            Element::Input(_, _, i) => i.size().y,
+            Element::GameEntry { .. } => LINE_HEIGHT * 2,
+        };
+        Vector2::new(width, height)
     }
 
     fn render(&self, mut sink: Frame<Msg>) {
         if let Element::Input(true, prompt, _) = self {
             let mut prompt_frame = sink.split_off(Split::Left, PROMPT_WIDTH);
-            prompt_frame.split_off(Split::Top, 20);
-            prompt.render(prompt_frame);
+            prompt_frame.render_placed(prompt, 1.0, 0.5);
         } else {
             sink.split_off(Split::Left, PROMPT_WIDTH);
         }
 
         match self {
             Element::Break => {}
-            Element::Line(t) => {
-                t.render(sink);
+            Element::Line(center, t) => {
+                if *center {
+                    sink.render_placed(t, 0.5, 0.0);
+                } else {
+                    t.render(sink);
+                }
             }
             Element::Input(_, _, input) => {
                 input.render(sink);
             }
+            Element::GameEntry { big_text, small_text } => {
+                sink.render_split(big_text, Split::Top, 0.0);
+                small_text.render(sink);
+            }
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+enum SessionState {
+    Running,
+    Restoring,
+    Quitting,
 }
 
 struct Session {
@@ -226,7 +257,7 @@ struct Session {
     dict: Arc<Dict>,
     actions: mpsc::Receiver<VmOutput>,
     pages: Paged<Stack<Element>>,
-    restore: Option<Paged<Stack<GameEntry>>>,
+    restore: Option<Paged<Stack<Element>>>,
     save_root: PathBuf,
 }
 
@@ -234,16 +265,16 @@ impl Session {
     pub fn maybe_new_page(&mut self, padding: i32) {
         let space_remaining = self.pages.last().remaining();
         if padding > space_remaining.y {
-            self.pages.push(Stack::new(self.pages.last().bounds()));
+            self.pages.push(Stack::new(self.pages.last().size()));
         }
     }
 
-    pub fn restore(&mut self, path: &Path) {
-        if let Ok(save_data) = fs::read(path) {
-            eprintln!("Restoring from save at {}", path.display());
-            let based = base64::encode(&save_data);
-            self.zvm.restore(&based);
-        }
+    pub fn restore(&mut self, path: &Path) -> io::Result<()> {
+        let save_data = fs::read(path)?;
+        eprintln!("Restoring from save at {}", path.display());
+        let based = base64::encode(&save_data);
+        self.zvm.restore(&based);
+        Ok(())
     }
 
     fn load_saves(&self) -> io::Result<Vec<PathBuf>> {
@@ -270,13 +301,20 @@ impl Session {
 
     pub fn restore_menu(&mut self, saves: Vec<PathBuf>, bounds: Vector2<i32>) {
         let mut page = Paged::new(Stack::new(bounds));
+        for widget in Text::wrap(
+            &self.font,
+            "Select a saved game to restore from the list below. (Your most recent saved game is listed first.)",
+            LINE_LENGTH,
+            LINE_HEIGHT,
+        ) {
+            page.push_stack(Element::Line(false, widget));
+        }
+        page.push_stack(Element::Break);
+
         for path in saves {
-            let text = path.to_string_lossy();
-            let widget = Text::layout(&self.font, &text, LINE_HEIGHT);
-            page.push_stack(GameEntry {
-                path: path.clone(),
-                text: widget.on_touch(Some(Msg::Restore(path)))
-            })
+            let text = path.to_string_lossy().to_string();
+            let slug = path.file_stem().map_or("unknown".to_string(), |os| os.to_string_lossy().to_string());
+            page.push_stack(Element::hmm(&self.font, &slug, &text, Some(Msg::Restore(path))));
         }
         self.restore = Some(page);
     }
@@ -298,9 +336,28 @@ impl Session {
                 }
             }
 
-            for line in paragraph.split("\n") {
-                for widget in ui::Text::wrap(&self.font, line, self.pages.bounds().x - 60, LINE_HEIGHT) {
-                    self.pages.push_stack(Element::Line(widget));
+            // TODO: a less embarassing heuristic for the title paragraph
+            if paragraph.contains("erial number") && paragraph.contains("Infocom") {
+                // We think this is a title slug!
+                let mut paragraph_iter =paragraph.split("\n");
+
+                if let Some(title) = paragraph_iter.next() {
+                    self.maybe_new_page(LINE_HEIGHT * 16);
+
+                    for widget in ui::Text::wrap(&self.font, title, self.pages.size().x, LINE_HEIGHT * 2) {
+                        self.pages.push_stack(Element::Line(true, widget));
+                    }
+
+                    for line in paragraph_iter {
+                        let widget = Text::layout(&self.font, line, LINE_HEIGHT);
+                        self.pages.push_stack(Element::Line(true, widget));
+                    }
+                }
+            } else {
+                for line in paragraph.split("\n") {
+                    for widget in ui::Text::wrap(&self.font, line, self.pages.size().x, LINE_HEIGHT) {
+                        self.pages.push_stack(Element::Line(false, widget));
+                    }
                 }
             }
 
@@ -308,11 +365,11 @@ impl Session {
         }
     }
 
-    pub fn advance(&mut self) -> bool {
+    pub fn advance(&mut self) -> SessionState {
         let finished = self.zvm.step();
 
         if finished {
-            unimplemented!("Game stopped!");
+            return SessionState::Quitting;
         }
 
         let mut buffer = String::new();
@@ -324,7 +381,7 @@ impl Session {
                 VmOutput::Save(data) => {
                     self.append_buffer(mem::take(&mut buffer));
                     let stuff = ui::Text::layout(&self.font, "SAVE pLACEHOLDER!", 88);
-                    self.pages.push_stack(Element::Line(stuff));
+                    self.pages.push_stack(Element::Line(false, stuff));
 
                     let now = chrono::offset::Local::now();
                     let save_file_name = format!("{}.sav", now.format("%Y-%m-%d-%H%M%S"));
@@ -332,7 +389,7 @@ impl Session {
                     fs::write(save_path, data).unwrap();
                 }
                 VmOutput::Restore => {
-                    return true;
+                    return SessionState::Restoring;
                 }
             }
         }
@@ -349,14 +406,14 @@ impl Session {
             ui::InputArea::new(Vector2::new(600, 88)).on_ink(Some(Msg::Input(last_page, next_element)))
         ));
 
-        false
+        SessionState::Running
     }
 }
 
 enum GameState {
     // No game loaded... choose from a list.
     Init {
-        games: Paged<Stack<GameEntry>>,
+        games: Paged<Stack<Element>>,
     },
     // We're in the middle of a game!
     Playing {
@@ -442,21 +499,32 @@ impl Game {
         Ok(session)
     }
 
-    fn init(bounds: BoundingBox, font: Font<'static>, ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>, root_dir: PathBuf) -> Game {
-        let mut games = Paged::new(Stack::new(bounds.size()));
-        for game_path in Game::list_games(&root_dir).expect(&format!("Unable to list games in {:?}", root_dir)) {
-            let path_str = format!("❧ {}", game_path.to_str().unwrap_or("unknown path"));
-            let text = Text::layout(&font, &path_str, LINE_HEIGHT);
+    fn game_page(font: &Font<'static>, size: Vector2<i32>, root_dir: &Path) -> Paged<Stack<Element>> {
+        let mut games = Paged::new(Stack::new(size));
 
-            games.push_stack(GameEntry {
-                path: game_path.clone(),
-                text: text.on_touch(Some(Msg::LoadGame(game_path))),
-            });
+        for widget in Text::wrap(
+            font,
+            "Welcome to Encrusted! Choose a game from the list to get started.",
+            LINE_LENGTH,
+            LINE_HEIGHT,
+        ) {
+            games.push_stack(Element::Line(false, widget));
         }
+        games.push_stack(Element::Break);
 
+        for game_path in Game::list_games(root_dir).expect(&format!("Unable to list games in {:?}", root_dir)) {
+            let path_str = game_path.to_string_lossy().to_string();
+            let slug = game_path.file_stem().map_or("unknown".to_string(), |os| os.to_string_lossy().to_string());
+
+            games.push_stack(Element::hmm(font, &slug, &path_str, Some(Msg::LoadGame(game_path))));
+        }
+        games
+    }
+
+    fn init(bounds: BoundingBox, font: Font<'static>, ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>, root_dir: PathBuf) -> Game {
         Game {
             bounds,
-            state: GameState::Init { games },
+            state: GameState::Init { games: Game::game_page(&font, bounds.size(), &root_dir) },
             font,
             ink_tx,
             awaiting_ink: 0,
@@ -465,187 +533,141 @@ impl Game {
     }
 
     pub fn update(&mut self, action: Action, message: Msg) {
-        let text_area_shape = self.bounds();
-        match &mut self.state {
-            GameState::Init { games } => {
-                match message {
-                    Msg::Page => {
-                        if let Action::Touch(touch) = action {
-                            if (touch.start.y - touch.end.y).abs() < 40.0 {
-                                let hdiff = touch.end.x - touch.start.x;
-                                if hdiff < -80.0 {
-                                    games.page_relative(1);
-                                } else if hdiff > 80.0 {
-                                    games.page_relative(-1);
-                                }
+        let text_area_shape = self.size();
+        match message {
+            Msg::Input(page, line) => {
+                if let Action::Ink(ink) = action {
+                    if let GameState::Playing { session} = &mut self.state {
+                        let element = &mut session.pages[page][line];
+                        match element {
+                            Element::Input(true, _, input) => {
+                                input.ink.append(ink.clone(), 0.5);
+                                self.awaiting_ink += 1;
+                                self.ink_tx
+                                    .send((input.ink.clone(), session.dict.clone(), self.awaiting_ink))
+                                    .unwrap();
+                            }
+                            _ => {
+                                eprintln!("Strange: got input on an unexpected element. [page={}, line{}]", page, line);
                             }
                         }
                     }
-                    Msg::LoadGame(game_path) => {
-                        let mut session = self.load_game(&game_path).unwrap();
-                        let saves = session.load_saves().unwrap();
-                        if saves.is_empty() {
-                            session.advance();
-                        } else {
-                            session.restore_menu(saves, self.bounds())
-                        }
-
-                        self.state = GameState::Playing { session }
-                    }
-                    _ => {}
                 }
             }
-            GameState::Playing { session } => {
-                if let Some(restore) = &mut session.restore {
-                    match message {
-                        Msg::Page => {
-                            if let Action::Touch(touch) = action {
-                                if (touch.start.y - touch.end.y).abs() < 40.0 {
-                                    let hdiff = touch.end.x - touch.start.x;
-                                    if hdiff < -80.0 {
-                                        restore.page_relative(1);
-                                    } else if hdiff > 80.0 {
-                                        restore.page_relative(-1);
-                                    }
-                                }
-                            }
-                        }
-                        Msg::Restore(path) => {
-                            session.restore(&path);
-                            session.advance();
-                            session.restore = None;
-                        }
-                        _ => {}
+            Msg::Page => {
+                let current_pages = match &mut self.state {
+                    GameState::Playing { session, .. } => match &mut session.restore {
+                        None => &mut session.pages,
+                        Some(saves) => saves,
                     }
-                } else {
-                    match message {
-                        Msg::Input(page, line) => {
-                            if let Action::Ink(ink) = action {
-                                let element = &mut session.pages[page][line];
-                                match element {
-                                    Element::Input(true, _, input) => {
-                                        input.ink.append(ink.clone(), 0.5);
-                                        self.awaiting_ink += 1;
-                                        self.ink_tx
-                                            .send((input.ink.clone(), session.dict.clone(), self.awaiting_ink))
-                                            .unwrap();
-                                    }
-                                    _ => {
-                                        eprintln!("Strange: got input on an unexpected element. [page={}, line{}]", page, line);
-                                    }
-                                }
-                            }
-                        }
+                    GameState::Init { games } => games,
+                };
 
-                        Msg::Page => {
-                            if let Action::Touch(touch) = action {
-                                if (touch.start.y - touch.end.y).abs() < 40.0 {
-                                    let hdiff = touch.end.x - touch.start.x;
-                                    if hdiff < -80.0 {
-                                        session.pages.page_relative(1);
-                                    } else if hdiff > 80.0 {
-                                        session.pages.page_relative(-1);
-                                    }
-                                }
-                            }
+                if let Action::Touch(touch) = action {
+                    let hdiff = touch.end.x - touch.start.x;
+                    let vdiff = touch.end.y - touch.start.y;
+                    if vdiff.abs() <= hdiff.abs() * 0.5 {
+                        if hdiff < -120.0 {
+                            current_pages.page_relative(1);
+                        } else if hdiff > 120.0 {
+                            current_pages.page_relative(-1);
                         }
-                        Msg::RecognizedText(n, text) => {
-                            if n == self.awaiting_ink {
-                                if let Some(Element::Input(flag, _, _)) = session.pages.current_mut().last_mut() {
-                                    *flag = false;
-                                }
-                                session.zvm.handle_input(text);
-                                if session.advance() {
-                                    // Start a new page unless the current page is empty
-                                    session.maybe_new_page(TEXT_AREA_HEIGHT);
-                                    let saves = session.load_saves().unwrap();
-                                    session.restore_menu(saves, text_area_shape)
-                                };
-                            }
-                        }
-                        _ => {}
                     }
+                }
+            }
+            Msg::RecognizedText(n, text) => if let GameState::Playing { session }  = &mut self.state {
+                if n == self.awaiting_ink {
+                    if let Some(Element::Input(flag, _, _)) = session.pages.current_mut().last_mut() {
+                        *flag = false;
+                    }
+                    session.zvm.handle_input(text);
+                    match session.advance() {
+                        SessionState::Running => {}
+                        SessionState::Restoring => {
+                            // Start a new page unless the current page is empty
+                            // session.maybe_new_page(TEXT_AREA_HEIGHT);
+                            let saves = session.load_saves().unwrap();
+                            session.restore_menu(saves, text_area_shape)
+                        }
+                        SessionState::Quitting => {
+                            self.state = GameState::Init { games: Game::game_page(&self.font, self.size(), &self.root_dir) };
+                        }
+                    };
+                }
+            }
+            Msg::LoadGame(game_path) => {
+                let mut session = self.load_game(&game_path).unwrap();
+                let saves = session.load_saves().unwrap();
+                if saves.is_empty() {
+                    let state = session.advance();
+                    assert_eq!(state, SessionState::Running);
+                } else {
+                    session.restore_menu(saves, self.size())
+                }
+
+                self.state = GameState::Playing { session }
+            }
+            Msg::Restore(path) => {
+                if let GameState::Playing { session }  = &mut self.state {
+                    session.restore(&path);
+                    session.advance();
+                    session.restore = None;
                 }
             }
         }
-    }
-}
-
-struct GameEntry {
-    path: PathBuf,
-    text: Text<'static, Msg>,
-}
-
-impl Widget for GameEntry {
-    type Message = Msg;
-
-    fn bounds(&self) -> Vector2<i32> {
-        self.text.bounds()
-    }
-
-    fn render(&self, mut sink: Frame<Self::Message>) {
-        sink.split_off(Split::Left, PROMPT_WIDTH);
-        self.text.render(sink)
     }
 }
 
 impl Widget for Game {
     type Message = Msg;
 
-    fn bounds(&self) -> Vector2<i32> {
+    fn size(&self) -> Vector2<i32> {
         self.bounds.bottom_right - Point2::origin()
     }
 
     fn render(&self, mut frame: Frame<Msg>) {
+        frame.on_input(Msg::Page);
         frame.split_off(Split::Top, self.bounds.top_left.y);
 
         let mut body_frame = frame.split_off(Split::Top, TEXT_AREA_HEIGHT);
         body_frame.split_off(Split::Left, self.bounds.top_left.x);
-        body_frame.on_input(Msg::Page);
-        match &self.state {
-            GameState::Playing { session } => {
-                if let Some(restore) = &session.restore {
-                    restore.render(body_frame);
-                } else {
-                    session.pages.render(body_frame);
-                }
-            }
-            GameState::Init { games } => {
-                games.render(body_frame);
-            }
-        }
 
-        let (page_number, last_page) = match &self.state {
+        let current_pages = match &self.state {
             GameState::Playing { session, .. } => match &session.restore {
-                None => (session.pages.current_index(), session.pages.len()),
-                Some(saves) => (saves.current_index(), saves.len()),
+                None => &session.pages,
+                Some(saves) => saves,
             }
-            GameState::Init { games } => (games.current_index(), games.len()),
+            GameState::Init { games } => games,
         };
 
-        let page_string = (page_number + 1).to_string();
-        let page_text = Text::layout(&self.font, &page_string, LINE_HEIGHT).on_touch(None);
-        let page_number_start = (DISPLAYWIDTH as i32 - page_text.bounds().x) / 2;
+        current_pages.render(body_frame);
+
+        let page_number = current_pages.current_index();
+        let page_string = (current_pages.current_index() + 1).to_string();
+        let page_text = Text::layout(&self.font, &page_string, LINE_HEIGHT);
+
+        let page_number_start = (DISPLAYWIDTH as i32 - page_text.size().x) / 2;
+
+        let mut frame = frame.split_off(Split::Top, LINE_HEIGHT * 2);
 
         let mut before = frame.split_off(Split::Left, page_number_start);
 
         if page_number > 0 {
-            let left_arrow = Text::layout(&self.font, "◁", LINE_HEIGHT).on_touch(None);
-            left_arrow.render(before.split_off(Split::Right, left_arrow.bounds().x + 16));
-            mem::drop(before)
+            let left_arrow = Text::layout(&self.font, "<", LINE_HEIGHT * 2 / 3);
+            before.render_placed(&left_arrow, 0.98, 0.5);
         } else {
             mem::drop(before);
         }
 
         let mut after = frame.split_off(Split::Right, page_number_start);
-        if page_number + 1 < last_page {
-            let left_arrow = Text::layout(&self.font, "▷", LINE_HEIGHT).on_touch(None);
-            left_arrow.render(after);
+        if page_number + 1 < current_pages.len() {
+            let left_arrow = Text::layout(&self.font, ">", LINE_HEIGHT * 2 / 3);
+            after.render_placed(&left_arrow, 0.02, 0.5)
         } else {
             mem::drop(after);
         }
 
-        page_text.render(frame);
+        frame.render_placed(&page_text, 0.5, 0.5);
     }
 }
 
@@ -720,34 +742,29 @@ fn main() {
     let mut gestures = gesture::State::new();
 
     while let Ok(event) = input_rx.recv() {
-        match gestures.on_event(event) {
-            Some(Gesture::Ink(Tool::Pen)) => {
-                let ink = gestures.take_ink();
-
-                screen.damage(ink.bounds());
-
-                let center = ink.centroid().map(|c| c as i32);
-                for (b, m) in handlers.query(center) {
-                    let translated = ink.clone().translate((Point2::origin() - b.top_left).map(|c| c as f32));
-                    eprintln!("Inked! {}", translated.len());
-                    game.update(Action::Ink(translated), m.clone());
-                }
-
-                handlers = screen.draw(&game);
-            }
+        let action_opt = match gestures.on_event(event) {
             Some(Gesture::Stroke(Tool::Pen, from, to)) => {
                 screen.stroke(from, to);
-            }
+                None
+            },
+            Some(Gesture::Ink(Tool::Pen)) => {
+                let ink = gestures.take_ink();
+                screen.damage(ink.bounds());
+                Some(Action::Ink(ink))
+            },
             Some(Gesture::Tap(touch)) => {
-                let center = touch.midpoint().map(|c| c as i32);
-                for (b, m) in handlers.query(center) {
-                    let translated = touch.translate((Point2::origin() - b.top_left).map(|c| c as f32));
-                    eprintln!("Touched! {:?}", translated);
-                    game.update(Action::Touch(translated), m.clone());
-                }
-                handlers = screen.draw(&game);
+                Some(Action::Touch(touch))
+            },
+            _ => None,
+        };
+
+        if let Some(action) = action_opt {
+            let center = action.center().map(|c| c as i32);
+            for (b, m) in handlers.query(center) {
+                let translated = action.clone().translate((Point2::origin() - b.top_left));
+                game.update(translated, m.clone());
             }
-            _ => {}
+            handlers = screen.draw(&game);
         }
 
         // We don't want to change anything if the user is currently interacting with the screen.

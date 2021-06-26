@@ -18,8 +18,9 @@ rebuilt for the reMarkable tablet using
 [armrest](https://github.com/bkirwi/armrest).
 The original README contents continue after the break.*
 
-To build this code, you'll need to have the `armrest` repo checked out.
-I recommend using the `./build.rm` script in that repo to build this one too.
+To build this code,
+you'll need to have the `armrest` repo checked out in a sibling directory.
+To build for the reMarkable, run `../armrest/build-rm.sh`.
 
 ---
 

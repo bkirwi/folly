@@ -2,10 +2,13 @@
 extern crate enum_primitive;
 
 use std::{fs, io, mem, process, thread};
+use std::borrow::Borrow;
 use std::collections::BTreeSet;
 use std::env;
+use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Sink, Write};
+use std::io::SeekFrom::Start;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
@@ -15,22 +18,21 @@ use armrest::{gesture, ml, ui};
 use armrest::gesture::{Gesture, Tool, Touch};
 use armrest::ink::Ink;
 use armrest::ml::{LanguageModel, Recognizer, Spline};
-use armrest::ui::{Action, BoundingBox, Frame, Paged, Split, Stack, Text, Widget};
+use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget};
 use clap::{App, Arg};
 use libremarkable::cgmath::{EuclideanSpace, Point2, Vector2};
 use libremarkable::framebuffer::{core, FramebufferDraw, FramebufferRefresh};
-use libremarkable::framebuffer::FramebufferBase;
 use libremarkable::framebuffer::common::{color, DISPLAYWIDTH};
+use libremarkable::framebuffer::FramebufferBase;
 use libremarkable::input::{InputDevice, InputEvent};
 use libremarkable::input::ev::EvDevContext;
 use libremarkable::input::multitouch::MultitouchEvent;
 use rusttype::Font;
+use serde::{Deserialize, Serialize};
 
 use crate::options::Options;
 use crate::traits::UI;
 use crate::zmachine::Zmachine;
-use std::io::SeekFrom::Start;
-use std::ffi::OsStr;
 
 mod buffer;
 mod frame;
@@ -43,7 +45,6 @@ mod zmachine;
 const LEFT_MARGIN: i32 = 200;
 const TOP_MARGIN: i32 = 200;
 const LINE_HEIGHT: i32 = 44;
-const PROMPT_WIDTH: i32 = 22; // For the prompt etc.
 const LINE_LENGTH: i32 = 1000;
 const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
 
@@ -180,24 +181,33 @@ enum Msg {
     Page,
     RecognizedText(usize, String),
     LoadGame(PathBuf),
-    Restore(PathBuf),
+    Restore(PathBuf, SaveMeta),
+}
+
+enum TextAlign {
+    Left,
+    Center,
 }
 
 enum Element {
     Break,
     Line(bool, ui::Text<'static, Msg>),
-    Input(bool, ui::Text<'static, Msg>, ui::InputArea<Msg>),
-    GameEntry {
+    Input {
+        active: bool,
+        prompt: ui::Text<'static, Msg>,
+        area: ui::InputArea<Msg>
+    },
+    File {
         big_text: Text<'static, Msg>,
         small_text: Text<'static, Msg>,
     },
 }
 
 impl Element {
-    fn hmm(font: &Font<'static>, big_text: &str, small_text: &str, msg: Option<Msg>) -> Element {
-        Element::GameEntry {
+    fn file_display(font: &Font<'static>, big_text: &str, path_str: &str, msg: Option<Msg>) -> Element {
+        Element::File {
             big_text: Text::layout(&font, &big_text, LINE_HEIGHT * 4 / 3).on_touch(msg.clone()),
-            small_text: Text::layout(&font, &small_text, LINE_HEIGHT * 2 / 3).on_touch(msg)
+            small_text: Text::layout(&font, &path_str, LINE_HEIGHT * 2 / 3).on_touch(msg)
         }
     }
 }
@@ -206,23 +216,25 @@ impl Widget for Element {
     type Message = Msg;
 
     fn size(&self) -> Vector2<i32> {
-        let width = PROMPT_WIDTH + LINE_LENGTH;
+        let width = DISPLAYWIDTH as i32;
         let height = match self {
             Element::Break => LINE_HEIGHT,
             Element::Line(_, t) => t.size().y,
             Element::Input(_, _, i) => i.size().y,
-            Element::GameEntry { .. } => LINE_HEIGHT * 2,
+            Element::File { .. } => LINE_HEIGHT * 2,
         };
         Vector2::new(width, height)
     }
 
     fn render(&self, mut sink: Frame<Msg>) {
+        let margin_width = (DISPLAYWIDTH as i32 - LINE_LENGTH) / 2;
         if let Element::Input(true, prompt, _) = self {
-            let mut prompt_frame = sink.split_off(Split::Left, PROMPT_WIDTH);
+            let mut prompt_frame = sink.split_off(Side::Left, margin_width);
             prompt_frame.render_placed(prompt, 1.0, 0.5);
         } else {
-            sink.split_off(Split::Left, PROMPT_WIDTH);
+            sink.split_off(Side::Left, margin_width);
         }
+        sink.split_off(Side::Right, margin_width);
 
         match self {
             Element::Break => {}
@@ -236,12 +248,18 @@ impl Widget for Element {
             Element::Input(_, _, input) => {
                 input.render(sink);
             }
-            Element::GameEntry { big_text, small_text } => {
-                sink.render_split(big_text, Split::Top, 0.0);
+            Element::File { big_text, small_text } => {
+                sink.render_split(big_text, Side::Top, 0.0);
                 small_text.render(sink);
             }
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct SaveMeta {
+    location: String,
+    score_and_turn: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -313,8 +331,19 @@ impl Session {
 
         for path in saves {
             let text = path.to_string_lossy().to_string();
-            let slug = path.file_stem().map_or("unknown".to_string(), |os| os.to_string_lossy().to_string());
-            page.push_stack(Element::hmm(&self.font, &slug, &text, Some(Msg::Restore(path))));
+
+            let meta_path = path.with_extension("meta");
+            let meta: SaveMeta = if let Ok(data) = fs::read(&meta_path) {
+                serde_json::from_slice(&data).expect("Yikes: could not interpret meta file as valid save_meta data")
+            } else {
+                SaveMeta {
+                    location: "Unknown".to_string(),
+                    score_and_turn: "0/0".to_string()
+                }
+            };
+            let slug = format!("{} - {}", &meta.location, &meta.score_and_turn);
+
+            page.push_stack(Element::file_display(&self.font, &slug, &text, Some(Msg::Restore(path, meta))));
         }
         self.restore = Some(page);
     }
@@ -380,13 +409,34 @@ impl Session {
                 }
                 VmOutput::Save(data) => {
                     self.append_buffer(mem::take(&mut buffer));
-                    let stuff = ui::Text::layout(&self.font, "SAVE pLACEHOLDER!", 88);
-                    self.pages.push_stack(Element::Line(false, stuff));
 
+                    self.pages.push_stack(
+                        Element::Line(false, Text::layout(&self.font, "Saving game...", LINE_HEIGHT))
+                    );
+
+                    let (place, score) = self.zvm.get_status();
                     let now = chrono::offset::Local::now();
-                    let save_file_name = format!("{}.sav", now.format("%Y-%m-%d-%H%M%S"));
+                    let save_file_name = format!("{}.sav", now.format("%Y-%m-%dT%H:%M:%S"));
                     let save_path = self.save_root.join(Path::new(&save_file_name));
-                    fs::write(save_path, data).unwrap();
+                    fs::write(&save_path, data).unwrap();
+
+                    let meta = SaveMeta {
+                        location: place,
+                        score_and_turn: score,
+                    };
+                    let meta_json = serde_json::to_string(&meta).unwrap();
+                    let meta_path = save_path.with_extension("meta");
+                    fs::write(&meta_path, meta_json).unwrap();
+
+                    self.pages.push_stack(Element::Break);
+                    let stuff = Element::file_display(
+                        &self.font,
+                        &format!("{} - {}", &meta.location, &meta.score_and_turn),
+                        save_path.to_string_lossy().borrow(),
+                        None
+                    );
+                    self.pages.push_stack(stuff);
+                    self.pages.push_stack(Element::Break);
                 }
                 VmOutput::Restore => {
                     return SessionState::Restoring;
@@ -400,11 +450,13 @@ impl Session {
         let last_page = self.pages.len() - 1;
         let next_element = self.pages.last().len();
 
-        self.pages.push_stack(Element::Input(
-            true,
-            ui::Text::layout(&self.font, ">", LINE_HEIGHT).on_touch(None),
-            ui::InputArea::new(Vector2::new(600, 88)).on_ink(Some(Msg::Input(last_page, next_element)))
-        ));
+        self.pages.push_stack(Element::Input {
+            active: true,
+            prompt: ui::Text::layout(&self.font, "☞", LINE_HEIGHT)
+                .on_touch(None),
+            area: ui::InputArea::new(Vector2::new(600, 88))
+                .on_ink(Some(Msg::Input(last_page, next_element))),
+        });
 
         SessionState::Running
     }
@@ -516,7 +568,7 @@ impl Game {
             let path_str = game_path.to_string_lossy().to_string();
             let slug = game_path.file_stem().map_or("unknown".to_string(), |os| os.to_string_lossy().to_string());
 
-            games.push_stack(Element::hmm(font, &slug, &path_str, Some(Msg::LoadGame(game_path))));
+            games.push_stack(Element::file_display(font, &slug, &path_str, Some(Msg::LoadGame(game_path))));
         }
         games
     }
@@ -564,13 +616,11 @@ impl Game {
                 };
 
                 if let Action::Touch(touch) = action {
-                    let hdiff = touch.end.x - touch.start.x;
-                    let vdiff = touch.end.y - touch.start.y;
-                    if vdiff.abs() <= hdiff.abs() * 0.5 {
-                        if hdiff < -120.0 {
-                            current_pages.page_relative(1);
-                        } else if hdiff > 120.0 {
-                            current_pages.page_relative(-1);
+                    if let Some(side) = touch.to_swipe() {
+                        match side {
+                            Side::Left => { current_pages.page_relative(1) }
+                            Side::Right => { current_pages.page_relative(-1) }
+                            _ => {}
                         }
                     }
                 }
@@ -607,8 +657,18 @@ impl Game {
 
                 self.state = GameState::Playing { session }
             }
-            Msg::Restore(path) => {
+            Msg::Restore(path, meta) => {
                 if let GameState::Playing { session }  = &mut self.state {
+                    session.pages.push_stack(
+                        Element::Line(false, Text::layout(&self.font, "Restoring game...", LINE_HEIGHT))
+                    );
+                    session.pages.push_stack(Element::Break);
+                    session.pages.push_stack(Element::file_display(
+                        &self.font,
+                        &format!("{} - {}", &meta.location, &meta.score_and_turn),
+                        &path.to_string_lossy(),
+                        None,
+                    ));
                     session.restore(&path);
                     session.advance();
                     session.restore = None;
@@ -622,15 +682,14 @@ impl Widget for Game {
     type Message = Msg;
 
     fn size(&self) -> Vector2<i32> {
-        self.bounds.bottom_right - Point2::origin()
+        Vector2::new(DISPLAYWIDTH as i32, self.bounds.height())
     }
 
     fn render(&self, mut frame: Frame<Msg>) {
         frame.on_input(Msg::Page);
-        frame.split_off(Split::Top, self.bounds.top_left.y);
+        frame.split_off(Side::Top, self.bounds.top_left.y);
 
-        let mut body_frame = frame.split_off(Split::Top, TEXT_AREA_HEIGHT);
-        body_frame.split_off(Split::Left, self.bounds.top_left.x);
+        let mut body_frame = frame.split_off(Side::Top, TEXT_AREA_HEIGHT);
 
         let current_pages = match &self.state {
             GameState::Playing { session, .. } => match &session.restore {
@@ -648,9 +707,9 @@ impl Widget for Game {
 
         let page_number_start = (DISPLAYWIDTH as i32 - page_text.size().x) / 2;
 
-        let mut frame = frame.split_off(Split::Top, LINE_HEIGHT * 2);
+        let mut frame = frame.split_off(Side::Top, LINE_HEIGHT * 2);
 
-        let mut before = frame.split_off(Split::Left, page_number_start);
+        let mut before = frame.split_off(Side::Left, page_number_start);
 
         if page_number > 0 {
             let left_arrow = Text::layout(&self.font, "<", LINE_HEIGHT * 2 / 3);
@@ -659,7 +718,7 @@ impl Widget for Game {
             mem::drop(before);
         }
 
-        let mut after = frame.split_off(Split::Right, page_number_start);
+        let mut after = frame.split_off(Side::Right, page_number_start);
         if page_number + 1 < current_pages.len() {
             let left_arrow = Text::layout(&self.font, ">", LINE_HEIGHT * 2 / 3);
             after.render_placed(&left_arrow, 0.02, 0.5)
@@ -695,7 +754,7 @@ fn main() {
     let mut ink_log = OpenOptions::new()
         .append(true)
         .create(true)
-        .open(root_dir.join("handwriting.log"));
+        .open(root_dir.join("ink.log"));
 
     if let Err(ioerr) = &ink_log {
         eprintln!("Error when opening ink log file: {}", ioerr);

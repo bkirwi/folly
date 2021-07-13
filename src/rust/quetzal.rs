@@ -53,9 +53,9 @@ impl QuetzalSave {
         }
 
         if !save.is_complete() {
-            panic!("Save file doesn't contain all necesary fields");
+            panic!("Save file doesn't contain all necessary fields: {}", &save);
         }
-
+        
         save
     }
 
@@ -125,7 +125,7 @@ impl QuetzalSave {
     }
 
     fn is_complete(&self) -> bool {
-        self.pc != 0 && self.chksum != 0 && !self.frames.is_empty() && !self.memory.is_empty()
+        self.pc != 0 && !self.frames.is_empty() && !self.memory.is_empty()
     }
 
     fn read_ifhd_body(&mut self, bytes: &[u8]) {
@@ -176,7 +176,7 @@ impl QuetzalSave {
         while index < compressed.len() {
             let byte = compressed[index];
 
-            // non-zero bytes are bytes that are different that the orignal
+            // non-zero bytes are bytes that are different that the original
             if byte != 0 {
                 uncompressed.push(byte);
                 index += 1;
@@ -287,5 +287,31 @@ impl fmt::Display for QuetzalSave {
         }
 
         write!(f, "")
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_roundtrip() {
+        let pc: usize = 133;
+        let current: &[u8] = &[1, 2, 3, 4, 0, 0, 0, 5, 6];
+        let original: &[u8] = &[1, 2, 3, 0, 0, 9, 0, 5, 6];
+        let frames: &[Frame] = &[
+            Frame::new(16, None, vec![], &[])
+        ];
+        let chksum: u16 = 33;
+        let release: u16 = 235;
+        let serial: &[u8] = &[1, 2, 3, 4, 5, 6];
+
+        let bytes = QuetzalSave::make(pc, current, original, frames, chksum, release, serial);
+        let save_data = QuetzalSave::from_bytes(&bytes, original);
+        assert_eq!(save_data.chksum, chksum);
+        assert_eq!(save_data.pc, pc);
+        assert_eq!(save_data.memory, current);
+        assert_eq!(save_data.frames, frames);
     }
 }

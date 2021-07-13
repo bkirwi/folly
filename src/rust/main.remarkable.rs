@@ -21,8 +21,8 @@ use armrest::ml::{LanguageModel, Recognizer, Spline};
 use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget};
 use clap::{App, Arg};
 use libremarkable::cgmath::{EuclideanSpace, Point2, Vector2};
-use libremarkable::framebuffer::{core, FramebufferDraw, FramebufferRefresh};
-use libremarkable::framebuffer::common::{color, DISPLAYWIDTH};
+use libremarkable::framebuffer::{core, FramebufferDraw, FramebufferRefresh, FramebufferIO};
+use libremarkable::framebuffer::common::{color, DISPLAYWIDTH, DISPLAYHEIGHT};
 use libremarkable::framebuffer::FramebufferBase;
 use libremarkable::input::{InputDevice, InputEvent};
 use libremarkable::input::ev::EvDevContext;
@@ -33,6 +33,8 @@ use serde::{Deserialize, Serialize};
 use crate::options::Options;
 use crate::traits::UI;
 use crate::zmachine::Zmachine;
+use std::cell::Cell;
+use std::rc::Rc;
 
 mod buffer;
 mod frame;
@@ -117,6 +119,8 @@ impl UI for RmUI {
 #[derive(Debug, Clone)]
 struct Dict(BTreeSet<String>);
 
+const PUNCTUATION: &str = " .,\"";
+
 impl Dict {
     const VALID: f32 = 1.0;
     // Tradeoff: you want this to be small, since any plausible input
@@ -138,12 +142,12 @@ impl LanguageModel for &Dict {
         let Dict(words) = self;
 
         // TODO: use the real lexing rules from https://inform-fiction.org/zmachine/standards/z1point1/sect13.html
-        if !ch.is_ascii_lowercase() && !(" .,".contains(ch)) {
+        if !ch.is_ascii_lowercase() && !(PUNCTUATION.contains(ch)) {
             return Dict::INVALID;
         }
 
         let word_start =
-            input.rfind(|c| " .,".contains(c)).map(|i| i + 1).unwrap_or(0);
+            input.rfind(|c| PUNCTUATION.contains(c)).map(|i| i + 1).unwrap_or(0);
 
         let prefix = &input[word_start..];
 
@@ -153,7 +157,7 @@ impl LanguageModel for &Dict {
         }
 
         // If the current character is punctuation, we check that the prefix is a valid word
-        if " .,".contains(ch) {
+        if PUNCTUATION.contains(ch) {
             return if words.contains(prefix) || prefix.is_empty() { Dict::VALID } else { Dict::INVALID };
         }
 
@@ -182,6 +186,7 @@ enum Msg {
     RecognizedText(usize, String),
     LoadGame(PathBuf),
     Restore(PathBuf, SaveMeta),
+    StartFromBeginning,
 }
 
 enum TextAlign {
@@ -190,10 +195,11 @@ enum TextAlign {
 }
 
 enum Element {
-    Break,
+    Break(i32),
     Line(bool, ui::Text<'static, Msg>),
     Input {
-        active: bool,
+        id: usize,
+        active: Rc<Cell<usize>>,
         prompt: ui::Text<'static, Msg>,
         area: ui::InputArea<Msg>
     },
@@ -218,9 +224,9 @@ impl Widget for Element {
     fn size(&self) -> Vector2<i32> {
         let width = DISPLAYWIDTH as i32;
         let height = match self {
-            Element::Break => LINE_HEIGHT,
+            Element::Break(n) => *n,
             Element::Line(_, t) => t.size().y,
-            Element::Input(_, _, i) => i.size().y,
+            Element::Input { area: i, .. } => i.size().y,
             Element::File { .. } => LINE_HEIGHT * 2,
         };
         Vector2::new(width, height)
@@ -228,16 +234,33 @@ impl Widget for Element {
 
     fn render(&self, mut sink: Frame<Msg>) {
         let margin_width = (DISPLAYWIDTH as i32 - LINE_LENGTH) / 2;
-        if let Element::Input(true, prompt, _) = self {
-            let mut prompt_frame = sink.split_off(Side::Left, margin_width);
-            prompt_frame.render_placed(prompt, 1.0, 0.5);
-        } else {
-            sink.split_off(Side::Left, margin_width);
+
+        let mut prompt_frame = sink.split_off(Side::Left, margin_width);
+        match self {
+            Element::Input { id, active, prompt, ..} if *id == active.get() => {
+                prompt_frame.split_off(Side::Right, 12);
+                prompt_frame.render_placed(prompt, 1.0, 0.5);
+            }
+            Element::File { .. } => {
+                if let Some(mut canvas) = prompt_frame.canvas(388) {
+                    let bounds = canvas.bounds();
+                    let fb = canvas.framebuffer();
+                    fb.fill_rect(
+                        Point2::new(bounds.bottom_right.x - 12, bounds.top_left.y + 12),
+                        Vector2::new(2, bounds.height() as u32 - 18),
+                        color::BLACK,
+                    );
+                }
+            }
+            _ => {
+                mem::drop(prompt_frame);
+            }
         }
+
         sink.split_off(Side::Right, margin_width);
 
         match self {
-            Element::Break => {}
+            Element::Break(_) => {}
             Element::Line(center, t) => {
                 if *center {
                     sink.render_placed(t, 0.5, 0.0);
@@ -245,8 +268,8 @@ impl Widget for Element {
                     t.render(sink);
                 }
             }
-            Element::Input(_, _, input) => {
-                input.render(sink);
+            Element::Input { area, .. } => {
+                area.render(sink);
             }
             Element::File { big_text, small_text } => {
                 sink.render_split(big_text, Side::Top, 0.0);
@@ -273,6 +296,8 @@ struct Session {
     font: Font<'static>,
     zvm: Zmachine,
     dict: Arc<Dict>,
+    next_input: usize,
+    active_input: Rc<Cell<usize>>,
     actions: mpsc::Receiver<VmOutput>,
     pages: Paged<Stack<Element>>,
     restore: Option<Paged<Stack<Element>>>,
@@ -317,8 +342,9 @@ impl Session {
         Ok(saves)
     }
 
-    pub fn restore_menu(&mut self, saves: Vec<PathBuf>, bounds: Vector2<i32>) {
+    pub fn restore_menu(&mut self, saves: Vec<PathBuf>, bounds: Vector2<i32>, initial_run: bool) {
         let mut page = Paged::new(Stack::new(bounds));
+
         for widget in Text::wrap(
             &self.font,
             "Select a saved game to restore from the list below. (Your most recent saved game is listed first.)",
@@ -327,7 +353,7 @@ impl Session {
         ) {
             page.push_stack(Element::Line(false, widget));
         }
-        page.push_stack(Element::Break);
+        page.push_stack(Element::Break(LINE_HEIGHT));
 
         for path in saves {
             let text = path.to_string_lossy().to_string();
@@ -345,6 +371,23 @@ impl Session {
 
             page.push_stack(Element::file_display(&self.font, &slug, &text, Some(Msg::Restore(path, meta))));
         }
+
+        if initial_run {
+            page.push_stack(Element::Break(LINE_HEIGHT));
+            for widget in Text::wrap(
+                &self.font,
+                "Or, start from the beginning...",
+                LINE_LENGTH,
+                LINE_HEIGHT,
+            ) {
+                page.push_stack(Element::Line(false, widget));
+            }
+            page.push_stack(Element::Break(LINE_HEIGHT));
+
+            page.push_stack(
+                Element::file_display(&self.font, "Start from the beginning", "...", Some(Msg::StartFromBeginning))
+            );
+        }
         self.restore = Some(page);
     }
 
@@ -361,12 +404,12 @@ impl Session {
             if !first {
                 self.maybe_new_page(LINE_HEIGHT);
                 if self.pages.last().len() != 0 {
-                    self.pages.push_stack(Element::Break);
+                    self.pages.push_stack(Element::Break(LINE_HEIGHT));
                 }
             }
 
             // TODO: a less embarassing heuristic for the title paragraph
-            if paragraph.contains("erial number") && paragraph.contains("Infocom") {
+            if paragraph.contains("Serial number") && (paragraph.contains("Infocom") || paragraph.contains("Inform")) {
                 // We think this is a title slug!
                 let mut paragraph_iter =paragraph.split("\n");
 
@@ -428,15 +471,14 @@ impl Session {
                     let meta_path = save_path.with_extension("meta");
                     fs::write(&meta_path, meta_json).unwrap();
 
-                    self.pages.push_stack(Element::Break);
-                    let stuff = Element::file_display(
+                    self.pages.push_stack(Element::Break(LINE_HEIGHT/2));
+                    self.pages.push_stack(Element::file_display(
                         &self.font,
                         &format!("{} - {}", &meta.location, &meta.score_and_turn),
                         save_path.to_string_lossy().borrow(),
                         None
-                    );
-                    self.pages.push_stack(stuff);
-                    self.pages.push_stack(Element::Break);
+                    ));
+                    self.pages.push_stack(Element::Break(LINE_HEIGHT/2));
                 }
                 VmOutput::Restore => {
                     return SessionState::Restoring;
@@ -450,10 +492,14 @@ impl Session {
         let last_page = self.pages.len() - 1;
         let next_element = self.pages.last().len();
 
+        let input_id = self.next_input;
+        self.next_input += 1;
+        self.active_input.set(input_id);
         self.pages.push_stack(Element::Input {
-            active: true,
+            id: input_id,
+            active: self.active_input.clone(),
             prompt: ui::Text::layout(&self.font, "☞", LINE_HEIGHT)
-                .on_touch(None),
+                .on_touch(Some(Msg::RecognizedText(usize::MAX, "".to_string()))),
             area: ui::InputArea::new(Vector2::new(600, 88))
                 .on_ink(Some(Msg::Input(last_page, next_element))),
         });
@@ -542,6 +588,8 @@ impl Game {
             font: self.font.clone(),
             zvm,
             dict: Arc::new(dict),
+            next_input: 0,
+            active_input: Rc::new(Cell::new(usize::MAX)),
             actions: vm_rx,
             pages,
             restore: None,
@@ -562,7 +610,7 @@ impl Game {
         ) {
             games.push_stack(Element::Line(false, widget));
         }
-        games.push_stack(Element::Break);
+        games.push_stack(Element::Break(LINE_HEIGHT));
 
         for game_path in Game::list_games(root_dir).expect(&format!("Unable to list games in {:?}", root_dir)) {
             let path_str = game_path.to_string_lossy().to_string();
@@ -592,11 +640,11 @@ impl Game {
                     if let GameState::Playing { session} = &mut self.state {
                         let element = &mut session.pages[page][line];
                         match element {
-                            Element::Input(true, _, input) => {
-                                input.ink.append(ink.clone(), 0.5);
+                            Element::Input { id, active, area, .. } if *id == active.get() => {
+                                area.ink.append(ink.clone(), 0.5);
                                 self.awaiting_ink += 1;
                                 self.ink_tx
-                                    .send((input.ink.clone(), session.dict.clone(), self.awaiting_ink))
+                                    .send((area.ink.clone(), session.dict.clone(), self.awaiting_ink))
                                     .unwrap();
                             }
                             _ => {
@@ -626,10 +674,11 @@ impl Game {
                 }
             }
             Msg::RecognizedText(n, text) => if let GameState::Playing { session }  = &mut self.state {
-                if n == self.awaiting_ink {
-                    if let Some(Element::Input(flag, _, _)) = session.pages.current_mut().last_mut() {
-                        *flag = false;
-                    }
+                if n == usize::MAX {
+                    // Ignore any pending inks!
+                    self.awaiting_ink += 1;
+                }
+                if n == self.awaiting_ink || n == usize::MAX {
                     session.zvm.handle_input(text);
                     match session.advance() {
                         SessionState::Running => {}
@@ -637,7 +686,7 @@ impl Game {
                             // Start a new page unless the current page is empty
                             // session.maybe_new_page(TEXT_AREA_HEIGHT);
                             let saves = session.load_saves().unwrap();
-                            session.restore_menu(saves, text_area_shape)
+                            session.restore_menu(saves, text_area_shape, false)
                         }
                         SessionState::Quitting => {
                             self.state = GameState::Init { games: Game::game_page(&self.font, self.size(), &self.root_dir) };
@@ -652,7 +701,7 @@ impl Game {
                     let state = session.advance();
                     assert_eq!(state, SessionState::Running);
                 } else {
-                    session.restore_menu(saves, self.size())
+                    session.restore_menu(saves, self.size(), true)
                 }
 
                 self.state = GameState::Playing { session }
@@ -662,15 +711,24 @@ impl Game {
                     session.pages.push_stack(
                         Element::Line(false, Text::layout(&self.font, "Restoring game...", LINE_HEIGHT))
                     );
-                    session.pages.push_stack(Element::Break);
+                    session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
                     session.pages.push_stack(Element::file_display(
                         &self.font,
                         &format!("{} - {}", &meta.location, &meta.score_and_turn),
                         &path.to_string_lossy(),
                         None,
                     ));
+                    session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
                     session.restore(&path);
-                    session.advance();
+                    let state = session.advance();
+                    assert_eq!(state, SessionState::Running);
+                    session.restore = None;
+                }
+            }
+            Msg::StartFromBeginning => {
+                if let GameState::Playing { session }  = &mut self.state {
+                    let state = session.advance();
+                    assert_eq!(state, SessionState::Running);
                     session.restore = None;
                 }
             }
@@ -682,7 +740,7 @@ impl Widget for Game {
     type Message = Msg;
 
     fn size(&self) -> Vector2<i32> {
-        Vector2::new(DISPLAYWIDTH as i32, self.bounds.height())
+        Vector2::new(DISPLAYWIDTH as i32, DISPLAYHEIGHT as i32)
     }
 
     fn render(&self, mut frame: Frame<Msg>) {

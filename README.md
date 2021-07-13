@@ -1,76 +1,83 @@
-<img src="https://demille.github.io/encrusted/src/img/name.svg" alt="encrusted" width="200px" height="78px" align="left" />
+# Encrusted (reMarkable version)
 
-<p align="right">
-  <img src="https://img.shields.io/crates/v/encrusted.svg" alt="Crates.io" align="right" />
-  <br/>
-  <a href="https://travis-ci.org/DeMille/encrusted">
-    <img src="https://travis-ci.org/DeMille/encrusted.svg?branch=master" alt="Built Status" align="right" />
-  </a>
-</p>
-<br/>
+### A z-machine (interpreter) for Infocom-era text adventure games like Zork
 
----
 
-#### A z-machine (interpreter) for Infocom-era text adventure games like Zork
-
-*This is a fork of the original Encrusted interpreter,
+**This is a fork of the [Encrusted interpreter by @DeMille](https://github.com/DeMille/encrusted),
 rebuilt for the reMarkable tablet using
-[armrest](https://github.com/bkirwi/armrest).
-The original README contents continue after the break.*
+[`armrest`](https://github.com/bkirwi/armrest).**
+This readme describes the fork -
+follow the links above for more context.
+
+**This software is in alpha.**
+If you encounter any bugs,
+[please report them](https://github.com/bkirwi/armrest/issues)!
+
+# About the handwriting recognition
+
+Encrusted uses the open-source handwriting recognition from `armrest`,
+which was created from scratch for the tablet.
+It runs fully locally on the device...
+but is not yet as reliable as the "cloud" handwriting recognition
+for documents in the main reMarkable application.
+
+You will occasionally need to repeat an input to get Encrusted to understand it.
+Some advice on getting the best results:
+- Make sure you know [the standard IF commands](http://pr-if.org/doc/play-if-card/play-if-card.html).
+  (The handwriting recognition is tuned to best recognize the words
+  that the game you're playing expects!)
+- Write in lowercase: no capital letters.
+- Printing is more reliably recognized than cursive at the moment.
+- If you can't get the game to recognize a word, try a synonym.
+
+The game logs your handwriting input,
+and its best guess at the corresponding text,
+to the `ink.log` file in `ENCRUSTED_ROOT`.
+Please consider contributing this data to the project,
+especially if the handwriting recognition was not working well for you...
+this sort of training data is extremely valuable
+for improving the quality of the recognizer.
+(You can submit the data by [creating an issue](https://github.com/bkirwi/armrest/issues/new)
+and adding the `ink.log` file from your device as an attachment.)
+
+# Running on reMarkable
+
+First, you'll need a copy of the binary.
+You can either build it from scratch (see instructions below)
+or grab a prebuilt binary from the [releases page](https://github.com/bkirwi/encrusted/releases).
+
+You'll also need a game to play. Freely available games include:
+- [Minizork](https://github.com/bkirwi/encrusted/raw/master/tests/minizork.z3) -
+  a pared-down version of the classic [Zork](https://en.wikipedia.org/wiki/Zork).
+- [Hitchhiker's Guide to the Galaxy](http://www.douglasadams.com/creations/hhgg.z3) -
+  a clever (but very difficult) game
+  [based on the beloved novel](https://en.wikipedia.org/wiki/The_Hitchhiker%27s_Guide_to_the_Galaxy_(video_game))
+
+(But any Infocom-era game with a `.z3` extension is expected to work.)
+
+
+The `ENCRUSTED_ROOT` environment variable sets the directory
+where Encrusted will look for game files, store saved games, and keep logs.
+It defaults to `/home/root/encrusted`.
+(Make sure you don't put the binary at that path!
+Consider `/home/root/bin/encrusted` instead.)
+
+If you're using a launcher, you may want to create a draft file for it as well:
+
+```bash
+# Create the launcher entry, assuming the binary is at /home/root/bin/encrusted
+cat << EOF > /opt/etc/draft/encrusted
+name=encrusted
+desc=a Z-machine interpreter for the reMarkable
+call=/home/root/bin/encrusted
+EOF
+```
+
+# Building and development
 
 To build this code,
 you'll need to have the `armrest` repo checked out in a sibling directory.
 To build for the reMarkable, run `../armrest/build-rm.sh`.
-
----
-
-Runs in a web interface or directly in a terminal.
-Built with Rust and WebAssembly (`wasm32-unknown-unknown`).
-
-🎮 &nbsp;[Launch the web player][web]
-
-<br/>
-
-**Features**
-- [x] Live mapping to keep track of where you are
-- [x] Undo / Redo support
-- [x] Narration / Dictation using the [web speech APIs][APIs]
-- [x] Object tree inspector
-
-[web]: https://sterlingdemille.com/encrusted
-[APIs]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API
-
-
-### Install
-Terminal version:
-
-```sh
-cargo install encrusted --bin encrusted
-```
-
-Run a file with `encrusted <FILE>`.
-Use `$undo` and `$redo` to step through your move history.
-Use `save` and `restore` to save your progress.
-
-
-### Build
-WebAssembly/React web version (requires node & rust nightly):
-
-```sh
-# If you haven't added nightly or the wasm32 target:
-rustup toolchain install nightly
-rustup target add wasm32-unknown-unknown --toolchain nightly
-
-# Runs webpack dev server on port 8000
-npm run dev
-
-# Build .wasm module with rust nightly, debug mode
-npm run build:debug
-
-# Or build all in release mode & bundle JS into the ./build directory
-npm run release
-```
-
 
 ### Tests
 
@@ -79,11 +86,9 @@ Run z-machine tests ([czech](https://inform-fiction.org/zmachine/standards/z1poi
 npm run test
 ```
 
-
 ### Notes
 - Currently only supports v3 zcode files
 - Saves games in the Quetzal format
-
 
 ### License
 MIT

@@ -2,6 +2,7 @@
 
 ### A z-machine (interpreter) for Infocom-era text adventure games like Zork
 
+https://user-images.githubusercontent.com/1596339/125673318-b95d00c0-ed43-4360-87ea-3e115d5a6876.mov
 
 **This is a fork of the [Encrusted interpreter by @DeMille](https://github.com/DeMille/encrusted),
 rebuilt for the reMarkable tablet using

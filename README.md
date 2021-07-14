@@ -82,7 +82,7 @@ If you're using a launcher, you may want to create a draft file for it as well:
 
 ```bash
 # Create the launcher entry, assuming the binary is at /home/root/bin/encrusted
-cat << EOF > /opt/etc/draft/encrusted
+cat << EOF > /opt/etc/draft/encrusted.draft
 name=encrusted
 desc=a Z-machine interpreter for the reMarkable
 call=/home/root/bin/encrusted

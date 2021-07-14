@@ -89,6 +89,17 @@ call=/home/root/bin/encrusted
 EOF
 ```
 
+## Playing a game
+
+When you're playing a game:
+write `save` to save your place,
+`restore` to load a previous save,
+and `quit` to exit out to the main menu.
+
+Occasionally games will ask you to "press ENTER or RETURN,"
+which is impossible without a keyboard!
+Tap the little hand to continue.
+
 # Building and development
 
 To build this code,

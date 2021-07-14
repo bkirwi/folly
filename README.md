@@ -14,19 +14,34 @@ follow the links above for more context.
 If you encounter any bugs,
 [please report them](https://github.com/bkirwi/armrest/issues)!
 
+# Interactive fiction
+
+A Z-machine is a virtual machine designed specifically
+for [interative fiction](https://en.wikipedia.org/wiki/Interactive_fiction).
+This interepreter supports a number of classic [Infocom](https://en.wikipedia.org/wiki/Infocom) games...
+but adapts them to accept handwritten commands instead of keyboard input.
+This makes them play well on a device like the reMarkable,
+where typing is annoying but reading and writing is very natural.
+
+If you haven't played an interactive fiction game before,
+you might want to get the hang of it on a keyboard first.
+This [cheat sheet](http://pr-if.org/doc/play-if-card/play-if-card.html)
+covers the basic commands,
+and [9:05](http://adamcadre.ac/if/905.html)
+is a nice short game to try them out on.
+
 # About the handwriting recognition
 
 Encrusted uses the open-source handwriting recognition from `armrest`,
 which was created from scratch for the tablet.
 It runs fully locally on the device...
 but is not yet as reliable as the "cloud" handwriting recognition
-for documents in the main reMarkable application.
+in the main reMarkable app.
 
 You will occasionally need to repeat an input to get Encrusted to understand it.
 Some advice on getting the best results:
-- Make sure you know [the standard IF commands](http://pr-if.org/doc/play-if-card/play-if-card.html).
-  (The handwriting recognition is tuned to best recognize the words
-  that the game you're playing expects!)
+- Make sure you know [the standard IF commands](http://pr-if.org/doc/play-if-card/play-if-card.html)!
+  (The handwriting recognition is tuned to recognize the words your game actually uses.)
 - Write in lowercase: no capital letters.
 - Printing is more reliably recognized than cursive at the moment.
 - If you can't get the game to recognize a word, try a synonym.
@@ -34,12 +49,12 @@ Some advice on getting the best results:
 The game logs your handwriting input,
 and its best guess at the corresponding text,
 to the `ink.log` file in `ENCRUSTED_ROOT`.
-Please consider contributing this data to the project,
-especially if the handwriting recognition was not working well for you...
-this sort of training data is extremely valuable
-for improving the quality of the recognizer.
-(You can submit the data by [creating an issue](https://github.com/bkirwi/armrest/issues/new)
-and adding the `ink.log` file from your device as an attachment.)
+**Please consider contributing this data to the project,
+especially if the handwriting recognition is not working well**...
+it will help us improve the system,
+for you and for anyone else with a similar handwriting style.
+You can submit the data by [creating an issue](https://github.com/bkirwi/armrest/issues/new)
+and adding the `ink.log` file from your device as an attachment.
 
 # Running on reMarkable
 
@@ -52,10 +67,10 @@ You'll also need a game to play. Freely available games include:
   a pared-down version of the classic [Zork](https://en.wikipedia.org/wiki/Zork).
 - [Hitchhiker's Guide to the Galaxy](http://www.douglasadams.com/creations/hhgg.z3) -
   a clever (but very difficult) game
-  [based on the beloved novel](https://en.wikipedia.org/wiki/The_Hitchhiker%27s_Guide_to_the_Galaxy_(video_game))
+  [based on the novel](https://en.wikipedia.org/wiki/The_Hitchhiker%27s_Guide_to_the_Galaxy_(video_game)).
 
-(But any Infocom-era game with a `.z3` extension is expected to work.)
-
+Other Infocom games like Wishbringer and Plundered Hearts are known to work,
+as should any Infocom-era game with a `.z3` extension.
 
 The `ENCRUSTED_ROOT` environment variable sets the directory
 where Encrusted will look for game files, store saved games, and keep logs.

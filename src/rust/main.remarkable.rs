@@ -50,6 +50,8 @@ const LINE_HEIGHT: i32 = 44;
 const LINE_LENGTH: i32 = 1000;
 const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
 
+const SECTION_BREAK: &str = "* * *";
+
 enum VmOutput {
     Print(String),
     Save(Vec<u8>),
@@ -185,8 +187,7 @@ enum Msg {
     Page,
     RecognizedText(usize, String),
     LoadGame(PathBuf),
-    Restore(PathBuf, SaveMeta),
-    StartFromBeginning,
+    Restore(Option<(PathBuf, SaveMeta)>),
 }
 
 enum TextAlign {
@@ -350,6 +351,7 @@ impl Session {
             "Select a saved game to restore from the list below. (Your most recent saved game is listed first.)",
             LINE_LENGTH,
             LINE_HEIGHT,
+            true,
         ) {
             page.push_stack(Element::Line(false, widget));
         }
@@ -369,24 +371,20 @@ impl Session {
             };
             let slug = format!("{} - {}", &meta.location, &meta.score_and_turn);
 
-            page.push_stack(Element::file_display(&self.font, &slug, &text, Some(Msg::Restore(path, meta))));
+            page.push_stack(
+                Element::file_display(&self.font, &slug, &text, Some(Msg::Restore(Some((path, meta)))))
+            );
         }
 
         if initial_run {
             page.push_stack(Element::Break(LINE_HEIGHT));
-            for widget in Text::wrap(
+            let widget = Text::layout(
                 &self.font,
-                "Or, start from the beginning...",
-                LINE_LENGTH,
+                "Or tap here to start from the beginning.",
                 LINE_HEIGHT,
-            ) {
-                page.push_stack(Element::Line(false, widget));
-            }
-            page.push_stack(Element::Break(LINE_HEIGHT));
+            ).on_touch(Some(Msg::Restore(None)));
 
-            page.push_stack(
-                Element::file_display(&self.font, "Start from the beginning", "...", Some(Msg::StartFromBeginning))
-            );
+            page.push_stack(Element::Line(false, widget));
         }
         self.restore = Some(page);
     }
@@ -416,7 +414,7 @@ impl Session {
                 if let Some(title) = paragraph_iter.next() {
                     self.maybe_new_page(LINE_HEIGHT * 16);
 
-                    for widget in ui::Text::wrap(&self.font, title, self.pages.size().x, LINE_HEIGHT * 2) {
+                    for widget in ui::Text::wrap(&self.font, title, self.pages.size().x, LINE_HEIGHT * 2, false) {
                         self.pages.push_stack(Element::Line(true, widget));
                     }
 
@@ -427,7 +425,7 @@ impl Session {
                 }
             } else {
                 for line in paragraph.split("\n") {
-                    for widget in ui::Text::wrap(&self.font, line, self.pages.size().x, LINE_HEIGHT) {
+                    for widget in ui::Text::wrap(&self.font, line, self.pages.size().x, LINE_HEIGHT, true) {
                         self.pages.push_stack(Element::Line(false, widget));
                     }
                 }
@@ -602,17 +600,32 @@ impl Game {
     fn game_page(font: &Font<'static>, size: Vector2<i32>, root_dir: &Path) -> Paged<Stack<Element>> {
         let mut games = Paged::new(Stack::new(size));
 
+        games.push_stack(Element::Line(true, Text::layout(font, "ENCRUSTED", LINE_HEIGHT * 3)));
+        games.push_stack(Element::Break(LINE_HEIGHT));
+
+        let game_vec = Game::list_games(root_dir).expect(&format!("Unable to list games in {:?}", root_dir));
+
+        let welcome_message: String = if game_vec.is_empty() {
+            format!(
+                "Welcome to Encrusted! It looks like you haven't added any games yet... add a Z3 file to {} and restart the app.",
+                root_dir.to_string_lossy(),
+            )
+        } else {
+            "Welcome to Encrusted! Choose a game from the list to get started.".to_string()
+        };
+
         for widget in Text::wrap(
             font,
-            "Welcome to Encrusted! Choose a game from the list to get started.",
+            &welcome_message,
             LINE_LENGTH,
             LINE_HEIGHT,
+            true,
         ) {
             games.push_stack(Element::Line(false, widget));
         }
         games.push_stack(Element::Break(LINE_HEIGHT));
 
-        for game_path in Game::list_games(root_dir).expect(&format!("Unable to list games in {:?}", root_dir)) {
+        for game_path in game_vec {
             let path_str = game_path.to_string_lossy().to_string();
             let slug = game_path.file_stem().map_or("unknown".to_string(), |os| os.to_string_lossy().to_string());
 
@@ -686,7 +699,12 @@ impl Game {
                             // Start a new page unless the current page is empty
                             // session.maybe_new_page(TEXT_AREA_HEIGHT);
                             let saves = session.load_saves().unwrap();
-                            session.restore_menu(saves, text_area_shape, false)
+                            if saves.is_empty() {
+                                // Nothing to restore to! Bail out to the top.
+                                self.state = GameState::Init { games: Game::game_page(&self.font, self.size(), &self.root_dir) };
+                            } else {
+                                session.restore_menu(saves, text_area_shape, false);
+                            }
                         }
                         SessionState::Quitting => {
                             self.state = GameState::Init { games: Game::game_page(&self.font, self.size(), &self.root_dir) };
@@ -706,27 +724,30 @@ impl Game {
 
                 self.state = GameState::Playing { session }
             }
-            Msg::Restore(path, meta) => {
+            Msg::Restore(to) => {
                 if let GameState::Playing { session }  = &mut self.state {
-                    session.pages.push_stack(
+                    if let Some((path, meta)) = to {
+                        if session.pages.len() > 1 || session.pages.current().len() > 0 {
+                            // Restoring in the middle of a session... add a visual break.
+                            session.pages.push_stack(Element::Break(LINE_HEIGHT));
+                            session.pages.push_stack(
+                            Element::Line(true, Text::layout(&self.font, SECTION_BREAK, LINE_HEIGHT))
+                            );
+                            session.pages.push_stack(Element::Break(LINE_HEIGHT));
+                        }
+                        session.pages.push_stack(
                         Element::Line(false, Text::layout(&self.font, "Restoring game...", LINE_HEIGHT))
-                    );
-                    session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
-                    session.pages.push_stack(Element::file_display(
-                        &self.font,
-                        &format!("{} - {}", &meta.location, &meta.score_and_turn),
-                        &path.to_string_lossy(),
-                        None,
-                    ));
-                    session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
-                    session.restore(&path);
-                    let state = session.advance();
-                    assert_eq!(state, SessionState::Running);
-                    session.restore = None;
-                }
-            }
-            Msg::StartFromBeginning => {
-                if let GameState::Playing { session }  = &mut self.state {
+                        );
+                        session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
+                        session.pages.push_stack(Element::file_display(
+                            &self.font,
+                            &format!("{} - {}", &meta.location, &meta.score_and_turn),
+                            &path.to_string_lossy(),
+                            None,
+                        ));
+                        session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
+                        session.restore(&path);
+                    }
                     let state = session.advance();
                     assert_eq!(state, SessionState::Running);
                     session.restore = None;
@@ -798,16 +819,10 @@ fn main() {
 
     let font: Font<'static> = Font::from_bytes(font_bytes).unwrap();
 
-    let mut screen = ui::Screen::new(core::Framebuffer::from_path("/dev/fb0"));
-    screen.clear();
+    let mut app = armrest::app::App::new();
 
     let (ink_tx, ink_rx) = mpsc::channel::<(Ink, Arc<Dict>, usize)>();
-    let (text_tx, text_rx) = mpsc::channel::<(Vec<(String, f32)>, usize)>();
-
-    let page_bounds = BoundingBox::new(
-        Point2::new(LEFT_MARGIN, TOP_MARGIN),
-        Point2::new(LEFT_MARGIN + LINE_LENGTH, TOP_MARGIN + TEXT_AREA_HEIGHT),
-    );
+    let mut text_tx = app.sender();
 
     let mut ink_log = OpenOptions::new()
         .append(true)
@@ -818,18 +833,17 @@ fn main() {
         eprintln!("Error when opening ink log file: {}", ioerr);
     }
 
+    let page_bounds = BoundingBox::new(
+        Point2::new(LEFT_MARGIN, TOP_MARGIN),
+        Point2::new(LEFT_MARGIN + LINE_LENGTH, TOP_MARGIN + TEXT_AREA_HEIGHT),
+    );
+
     let mut game = Game::init(
         page_bounds,
         font,
         ink_tx,
         root_dir,
     );
-
-    let mut handlers = screen.draw(&game);
-
-    let (input_tx, input_rx) = mpsc::channel::<InputEvent>();
-    EvDevContext::new(InputDevice::Multitouch, input_tx.clone()).start();
-    EvDevContext::new(InputDevice::Wacom, input_tx.clone()).start();
 
     let _thread = thread::spawn(move || {
         let mut recognizer: Recognizer<Spline> = ml::Recognizer::new().unwrap();
@@ -850,51 +864,12 @@ fn main() {
                 log.flush().expect("why not?");
             }
 
-            text_tx.send((string, n)).unwrap();
-            // NB: hack! Wake up the event loop when we're ready by sending a fake event.
-            input_tx.send(InputEvent::Unknown {}).unwrap();
+            text_tx.send(Msg::RecognizedText(n, string[0].0.clone()))
         }
     });
 
-    let mut gestures = gesture::State::new();
-
-    while let Ok(event) = input_rx.recv() {
-        let action_opt = match gestures.on_event(event) {
-            Some(Gesture::Stroke(Tool::Pen, from, to)) => {
-                screen.stroke(from, to);
-                None
-            },
-            Some(Gesture::Ink(Tool::Pen)) => {
-                let ink = gestures.take_ink();
-                screen.damage(ink.bounds());
-                Some(Action::Ink(ink))
-            },
-            Some(Gesture::Tap(touch)) => {
-                Some(Action::Touch(touch))
-            },
-            _ => None,
-        };
-
-        if let Some(action) = action_opt {
-            let center = action.center().map(|c| c as i32);
-            for (b, m) in handlers.query(center) {
-                let translated = action.clone().translate((Point2::origin() - b.top_left));
-                game.update(translated, m.clone());
-            }
-            handlers = screen.draw(&game);
-        }
-
-        // We don't want to change anything if the user is currently interacting with the screen.
-        if gestures.current_ink().len() == 0 {
-            if let Ok((texts, n)) = text_rx.try_recv() {
-                eprintln!("Results: {:?}", texts);
-
-                let text = texts[0].0.clone();
-
-                game.update(Action::Unknown, Msg::RecognizedText(n, text));
-
-                handlers = screen.draw(&game);
-            }
-        }
-    }
+    app.run(game, |game, action, msg| {
+        game.update(action, msg);
+        Ok(())
+    })
 }

@@ -91,14 +91,18 @@ EOF
 
 ## Playing a game
 
-When you're playing a game:
-write `save` to save your place,
-`restore` to load a previous save,
-and `quit` to exit out to the main menu.
+All commands in the game are handwritten;
+you can use lowercase english letters, commas, periods, quotes, and spaces.
+The handwriting recognition is automatic,
+and starts as soon as you lift your pen away from the page.
+(You may sometimes need to submit an empty input;
+in that case, tap the little hand directly.)
 
-Occasionally games will ask you to "press ENTER or RETURN,"
-which is impossible without a keyboard!
-Tap the little hand to continue.
+Aside from the usual interactive fiction commands,
+you can use a few meta-commands to manage the game itself.
+Write `save` to save your place,
+`restore` to load a previous save,
+and `quit` to exit out to the main menu and choose another game.
 
 # Building and development
 

@@ -1281,6 +1281,7 @@ impl Zmachine {
             (VAR_255, &[num]) => Some(self.do_check_arg_count(num)),
             (EXT_1002, &[num, places]) => Some(self.do_log_shift(num, places)),
             (EXT_1003, &[num, places]) => Some(self.do_art_shift(num, places)),
+            (EXT_1009, &[]) => Some(u16::MAX), // TODO: actually implement save_undo
             _ => None,
         };
 

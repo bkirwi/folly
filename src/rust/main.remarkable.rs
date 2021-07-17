@@ -183,7 +183,11 @@ impl LanguageModel for &Dict {
 
 #[derive(Clone, Debug)]
 enum Msg {
-    Input(usize, usize),
+    Input {
+        page: usize,
+        line: usize,
+        margin: bool,
+    },
     Page,
     RecognizedText(usize, String),
     LoadGame(PathBuf),
@@ -497,9 +501,9 @@ impl Session {
             id: input_id,
             active: self.active_input.clone(),
             prompt: ui::Text::layout(&self.font, "☞", LINE_HEIGHT)
-                .on_touch(Some(Msg::RecognizedText(usize::MAX, "".to_string()))),
+                .on_touch(Some(Msg::Input { page: last_page, line: next_element, margin: true })),
             area: ui::InputArea::new(Vector2::new(600, 88))
-                .on_ink(Some(Msg::Input(last_page, next_element))),
+                .on_ink(Some(Msg::Input { page: last_page, line: next_element, margin: false })),
         });
 
         SessionState::Running
@@ -648,23 +652,36 @@ impl Game {
     pub fn update(&mut self, action: Action, message: Msg) {
         let text_area_shape = self.size();
         match message {
-            Msg::Input(page, line) => {
-                if let Action::Ink(ink) = action {
-                    if let GameState::Playing { session} = &mut self.state {
-                        let element = &mut session.pages[page][line];
-                        match element {
-                            Element::Input { id, active, area, .. } if *id == active.get() => {
-                                area.ink.append(ink.clone(), 0.5);
+            Msg::Input { page, line, margin } => {
+                if let GameState::Playing { session} = &mut self.state {
+                    let element = &mut session.pages[page][line];
+                    match element {
+                        Element::Input { id, active, area, .. } if *id == active.get() => {
+                            let submit = match action {
+                                Action::Ink(ink) => {
+                                    if margin {
+                                        false
+                                    } else {
+                                        area.ink.append(ink, 0.5);
+                                        true
+                                    }
+                                }
+                                Action::Touch(_) if margin => area.ink.len() == 0,
+                                _ => false
+                            };
+
+                            if submit {
                                 self.awaiting_ink += 1;
                                 self.ink_tx
                                     .send((area.ink.clone(), session.dict.clone(), self.awaiting_ink))
                                     .unwrap();
                             }
-                            _ => {
-                                eprintln!("Strange: got input on an unexpected element. [page={}, line{}]", page, line);
-                            }
+                        }
+                        _ => {
+                            eprintln!("Strange: got input on an unexpected element. [page={}, line{}]", page, line);
                         }
                     }
+
                 }
             }
             Msg::Page => {
@@ -687,11 +704,7 @@ impl Game {
                 }
             }
             Msg::RecognizedText(n, text) => if let GameState::Playing { session }  = &mut self.state {
-                if n == usize::MAX {
-                    // Ignore any pending inks!
-                    self.awaiting_ink += 1;
-                }
-                if n == self.awaiting_ink || n == usize::MAX {
+                if n == self.awaiting_ink {
                     session.zvm.handle_input(text);
                     match session.advance() {
                         SessionState::Running => {}

@@ -938,7 +938,6 @@ impl Zmachine {
         }
     }
 
-    // Web UI only
     #[allow(dead_code)]
     pub fn get_current_room(&self) -> (u16, String) {
         let num = self.read_global(0);
@@ -948,8 +947,7 @@ impl Zmachine {
     }
 
     pub fn get_status(&self) -> (String, String) {
-        let num = self.read_global(0);
-        let left = self.get_object_name(num);
+        let (_, left) = self.get_current_room();
 
         // bit 1 in header flags:
         // 0 => score/turns

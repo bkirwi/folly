@@ -1338,6 +1338,9 @@ impl Zmachine {
             // these might be present in some v3 games but aren't implemented yet
             (VAR_243, _) | (VAR_244, _) | (VAR_245, _) => (),
 
+            // these exist in v5, but the game may still be playable without them!
+            (VAR_237, _) | (VAR_241, _) | (VAR_234, _) | (VAR_235, _) | (VAR_239, _) | (VAR_242, _) => (),
+
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}) @ {:#04x}\n\n",
                 instr.name, instr.opcode, self.pc

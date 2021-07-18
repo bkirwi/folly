@@ -1334,6 +1334,7 @@ impl Zmachine {
             (VAR_236, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vs2
             (VAR_249, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn
             (VAR_250, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn2
+            (VAR_251, &[text_addr, parse_addr]) => self.do_tokenise(text_addr, parse_addr),
 
             // special cases to no-op: (input/output streams & sound effects)
             // these might be present in some v3 games but aren't implemented yet
@@ -2159,6 +2160,17 @@ impl Zmachine {
     }
 
     // VAR_248 do_not() (same as OP1_143)
+
+    // VAR_251
+    fn do_tokenise(&mut self, text_addr: u16, parse_addr: u16) {
+        let max_chars = self.memory.read_byte(text_addr as usize);
+        let num_chars = self.memory.read_byte(text_addr as usize + 1);
+        assert!(num_chars <= max_chars);
+        let string = self.memory.read(text_addr as usize + 2, num_chars as usize);
+        // TODO: not really utf8 of course!
+        let text = str::from_utf8(string).expect("Invalid utf8!!").to_string();
+        self.tokenise(&text, parse_addr as usize);
+    }
 
     // VAR_255
     fn do_check_arg_count(&self, num: u16) -> u16 {

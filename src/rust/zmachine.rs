@@ -992,7 +992,17 @@ impl Zmachine {
         let release = self.memory.read_word(0x02);
         let serial = self.memory.read(0x12, 6);
 
-        QuetzalSave::make(pc, dynamic, original, frames, chksum, release, serial)
+        let save = QuetzalSave::make(pc, dynamic, original, frames, chksum, release, serial);
+
+        if cfg!(debug_assertions) {
+            let restored = QuetzalSave::from_bytes(&save, original);
+            debug_assert_eq!(pc, restored.pc);
+            debug_assert_eq!(dynamic, &restored.memory[..]);
+            debug_assert_eq!(frames, &restored.frames);
+            debug_assert_eq!(chksum, restored.chksum);
+        }
+
+        save
     }
 
     fn restore_state(&mut self, data: &[u8]) {

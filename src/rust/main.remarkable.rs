@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::options::Options;
 use crate::traits::UI;
-use crate::zmachine::Zmachine;
+use crate::zmachine::{Zmachine, Step};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -55,7 +55,6 @@ const SECTION_BREAK: &str = "* * *";
 enum VmOutput {
     Print(String),
     Save(Vec<u8>),
-    Restore,
 }
 
 
@@ -439,12 +438,8 @@ impl Session {
         }
     }
 
-    pub fn advance(&mut self) -> SessionState {
-        let finished = self.zvm.step();
-
-        if finished {
-            return SessionState::Quitting;
-        }
+    pub fn advance(&mut self) -> Step {
+        let result = self.zvm.step();
 
         let mut buffer = String::new();
         while let Ok(action) = self.actions.try_recv() {
@@ -482,9 +477,6 @@ impl Session {
                     ));
                     self.pages.push_stack(Element::Break(LINE_HEIGHT/2));
                 }
-                VmOutput::Restore => {
-                    return SessionState::Restoring;
-                }
             }
         }
 
@@ -506,7 +498,7 @@ impl Session {
                 .on_ink(Some(Msg::Input { page: last_page, line: next_element, margin: false })),
         });
 
-        SessionState::Running
+        result
     }
 }
 

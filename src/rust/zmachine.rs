@@ -120,6 +120,13 @@ impl ObjectProperty {
     }
 }
 
+#[derive(Eq, PartialEq)]
+pub enum Step {
+    Done,
+    Restore,
+    ReadLine,
+}
+
 pub struct Zmachine {
     pub ui: Box<UI>,
     pub options: Options,
@@ -1342,8 +1349,8 @@ impl Zmachine {
             (VAR_237, _) | (VAR_241, _) | (VAR_234, _) | (VAR_235, _) | (VAR_239, _) | (VAR_242, _) => (),
 
             _ => panic!(
-                "\n\nOpcode not yet implemented: {} ({:?}) @ {:#04x}\n\n",
-                instr.name, instr.opcode, self.pc
+                "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",
+                instr.name, instr.opcode, args.len(), self.pc
             ),
         }
 
@@ -1477,7 +1484,7 @@ impl Zmachine {
 
     // Web UI only
     #[allow(dead_code)]
-    pub fn step(&mut self) -> bool {
+    pub fn step(&mut self) -> Step {
         // loop through instructions until user input is needed
         // (saves/restores need a save name, read instructions need user input)
         // Pauses on these instructions and control is passed back to js
@@ -1500,10 +1507,8 @@ impl Zmachine {
                 }
                 // RESTORE (breaks loop)
                 Opcode::OP0_182 => {
-                    self.ui.message("restore", "");
                     self.paused_instr = Some(instr);
-
-                    return false;
+                    return Step::Restore;
                 }
                 // QUIT (breaks loop)
                 Opcode::OP0_186 => {
@@ -1515,7 +1520,7 @@ impl Zmachine {
                         self.send_save_message("savestate", &state);
                     }
 
-                    return true; // done == true
+                    return Step::Done; // done == true
                 }
                 // READ (breaks loop)
                 Opcode::VAR_228 => {
@@ -1527,7 +1532,7 @@ impl Zmachine {
                     self.current_state = Some((location, state));
                     self.paused_instr = Some(instr);
 
-                    return false;
+                    return Step::ReadLine;
                 }
                 _ => {
                     self.handle_instruction(&instr);
@@ -2059,7 +2064,7 @@ impl Zmachine {
         // need to update the status bar before each read
         self.update_status_bar();
         // add extra space so it doesn't look janky (non-spec)
-        self.ui.print(" ");
+        // self.ui.print(" ");
 
         let input = self.ui.get_user_input();
 

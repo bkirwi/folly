@@ -1188,7 +1188,7 @@ impl Zmachine {
                 ((byte & 0b0011_1111) << 8) + read.byte() as usize
             };
 
-            // the offset (if two bytes) is a 14 bit unsigned int: 2^14 = 16384
+            // the offset (if two bytes) is a 14 bit signed int: 2^14 = 16384
             let address = if offset > (16384 / 2) {
                 Some(read.position() + offset - 16384 - 2)
             } else {
@@ -1958,18 +1958,9 @@ impl Zmachine {
         // be saved in. (Saves store the value 2 when successful)
         //
         // (note: this logic only applies to the save/restore instructions)
-        let byte = self.memory.read_byte(self.pc);
-
-        if self.version <= 3 {
-            if byte & 0b1000_0000 != 0 {
-                self.pc += (byte & 0b0011_1111) as usize - 2; // follow branch
-            } else {
-                self.pc += 1; // next instruction
-            }
-        } else {
-            self.pc += 1;
-            self.write_variable(byte, 2); // store "we just restored" value
-        }
+        let instruction = self.decode_instruction(self.pc - 1);
+        assert_eq!(instruction.opcode, Opcode::OP0_181, "Expect to restore from a save instruction!");
+        self.process_result(&instruction, 2);
     }
 
     // OP0_183

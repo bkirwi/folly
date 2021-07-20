@@ -373,7 +373,7 @@ impl Zmachine {
         }
     }
 
-    fn get_abbrev(&self, index: u8) -> String {
+    fn get_abbrev(&self, index: u8, abbreviation_stack: &mut Vec<u8>) -> String {
         if index > 96 {
             panic!("Bad abbrev index: {}", index);
         }
@@ -382,18 +382,14 @@ impl Zmachine {
         let word_addr = self.memory.read_word(self.abbrev_table + offset);
         let addr = word_addr * 2; // "Word addresses are used only in the abbreviations table" - 1.2.2
 
-        self.read_zstring_from_abbrev(addr as usize)
-    }
-
-    fn read_zstring_from_abbrev(&self, addr: usize) -> String {
-        self.read_zstring_impl(addr, false)
+        self.read_zstring_impl(addr as usize, abbreviation_stack)
     }
 
     fn read_zstring(&self, addr: usize) -> String {
-        self.read_zstring_impl(addr, true)
+        self.read_zstring_impl(addr, &mut vec![])
     }
 
-    fn read_zstring_impl(&self, addr: usize, allow_abbrevs: bool) -> String {
+    fn read_zstring_impl(&self, addr: usize, abbreviation_stack: &mut Vec<u8>) -> String {
         use self::ZStringState::*;
 
         let mut state = Alphabet(0);
@@ -407,7 +403,6 @@ impl Zmachine {
                 state = match (zchar, &state) {
                     // the next zchar will be an abbrev index
                     (zch, &Alphabet(_)) if zch >= 1 && zch <= 3 => {
-                        assert!(allow_abbrevs, "Abbrev at {} contained recursive abbrev!", addr);
                         Abbrev(zch)
                     }
                     // shift character for the next zchar
@@ -423,7 +418,13 @@ impl Zmachine {
                     }
                     // get the abbrev at this addr
                     (_, &Abbrev(num)) => {
-                        let abbrev = self.get_abbrev((num - 1) * 32 + zchar);
+                        // NB: recursive abbreviations are banned by the spec, but some game files clearly use them!
+                        // Instead of banning them entirely, check that we're not in an infinite loop.
+                        let index = (num - 1) * 32 + zchar;
+                        assert!(!abbreviation_stack.contains(&index), "Recursive abbreviation at {}", index);
+                        abbreviation_stack.push(index);
+                        let abbrev = self.get_abbrev(index, abbreviation_stack);
+                        abbreviation_stack.pop();
                         zstring.push_str(&abbrev);
                         Alphabet(0)
                     }

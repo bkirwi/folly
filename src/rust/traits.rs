@@ -1,3 +1,9 @@
+#[derive(Ord, PartialOrd, Eq, PartialEq, Debug, Copy, Clone)]
+pub enum Window {
+    Lower,
+    Upper,
+}
+
 pub trait UI {
     fn new() -> Box<Self>
     where
@@ -7,6 +13,8 @@ pub trait UI {
     fn debug(&mut self, text: &str);
     fn print_object(&mut self, object: &str);
     fn set_status_bar(&self, left: &str, right: &str);
+
+    fn set_window(&mut self, _window: Window) {}
 
     // only used by terminal ui
     fn reset(&self);

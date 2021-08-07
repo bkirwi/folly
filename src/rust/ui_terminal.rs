@@ -8,7 +8,7 @@ use regex::Regex;
 use atty::Stream;
 use term_size;
 
-use crate::traits::UI;
+use crate::traits::{UI, Window};
 
 lazy_static! {
     static ref ANSI_RE: Regex = Regex::new(
@@ -19,6 +19,7 @@ lazy_static! {
 #[derive(Debug)]
 pub struct TerminalUI {
     isatty: bool,
+    active_window: Window,
     width: usize,
     x_position: usize,
 }
@@ -51,12 +52,14 @@ impl UI for TerminalUI {
         if let Some((w, _)) = term_size::dimensions() {
             Box::new(TerminalUI {
                 isatty: atty::is(Stream::Stdout),
+                active_window: Window::Lower,
                 width: w,
                 x_position: 0,
             })
         } else {
             Box::new(TerminalUI {
                 isatty: false,
+                active_window: Window::Lower,
                 width: 0,
                 x_position: 0,
             })
@@ -72,6 +75,10 @@ impl UI for TerminalUI {
     }
 
     fn print(&mut self, text: &str) {
+        if self.active_window == Window::Upper {
+            return;
+        }
+
         if !self.is_term() {
             self.print_raw(text);
             return;
@@ -124,6 +131,10 @@ impl UI for TerminalUI {
     }
 
     fn print_object(&mut self, object: &str) {
+        if self.active_window == Window::Upper {
+            return;
+        }
+
         if self.is_term() {
             self.print_raw("\x1B[37;1m");
         }
@@ -138,6 +149,10 @@ impl UI for TerminalUI {
         if self.is_term() {
             self.print_raw(&format!("\x1B]2;{}  -  {}\x07", left, right));
         }
+    }
+
+    fn set_window(&mut self, window: Window) {
+        self.active_window = window;
     }
 
     fn get_user_input(&self) -> String {

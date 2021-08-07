@@ -18,7 +18,7 @@ extern crate serde_derive;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use std::process;
+use std::{process, io};
 
 use clap::{App, Arg};
 
@@ -94,6 +94,14 @@ fn main() {
             }
             Step::Restore => {
                 unimplemented!("TODO: restore!");
+            }
+            Step::ReadChar => {
+                let mut input = String::new();
+                io::stdin()
+                    .read_line(&mut input)
+                    .expect("Error reading input");
+                let ch = input.chars().next().unwrap_or('\n');
+                zvm.handle_read_char(ch);
             }
             Step::ReadLine => {
                 let input = zvm.ui.get_user_input();

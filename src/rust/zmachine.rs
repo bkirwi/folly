@@ -17,7 +17,7 @@ use rand::{Rng, SeedableRng};
 use serde_json;
 use serde::Serialize;
 
-use crate::traits::UI;
+use crate::traits::{Window, UI};
 use crate::options::Options;
 use crate::buffer::Buffer;
 use crate::frame::Frame;
@@ -124,6 +124,7 @@ impl ObjectProperty {
 pub enum Step {
     Done,
     Restore,
+    ReadChar,
     ReadLine,
 }
 
@@ -1347,6 +1348,7 @@ impl Zmachine {
             (VAR_230, &[num]) => self.do_print_num(num),
             (VAR_232, &[value]) => self.do_push(value),
             (VAR_233, &[var]) => { self.do_pull(var); }
+            (VAR_235, &[window]) => self.do_set_window(window),
             (VAR_236, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vs2
             (VAR_249, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn
             (VAR_250, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn2
@@ -1357,7 +1359,7 @@ impl Zmachine {
             (VAR_243, _) | (VAR_244, _) | (VAR_245, _) => (),
 
             // these exist in v5, but the game may still be playable without them!
-            (VAR_237, _) | (VAR_241, _) | (VAR_234, _) | (VAR_235, _) | (VAR_239, _) | (VAR_242, _) => (),
+            (VAR_237, _) | (VAR_241, _) | (VAR_234, _) | (VAR_239, _) | (VAR_242, _) => (),
 
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",
@@ -1545,6 +1547,15 @@ impl Zmachine {
 
                     return Step::ReadLine;
                 }
+                Opcode::VAR_246 => {
+                    let state = self.make_save_state(self.pc);
+
+                    let (location, _) = self.get_status();
+                    self.current_state = Some((location, state));
+                    self.paused_instr = Some(instr);
+
+                    return Step::ReadChar;
+                }
                 _ => {
                     self.handle_instruction(&instr);
                 }
@@ -1584,6 +1595,26 @@ impl Zmachine {
         self.do_sread_second(args[0], args[1], input);
         self.pc = instr.next;
     }
+
+    // Web UI only - gives user input to the paused read instruction
+    // (passes control back JS afterwards)
+    #[allow(dead_code)]
+    pub fn handle_read_char(&mut self, input: char) {
+        let instr = self.paused_instr.take().expect(
+            "Can't handle input, no paused instruction to resume",
+        );
+
+        // new input changes timelines, so remove any obsolete redos
+        self.redos.clear();
+
+        // move current state into the undo list now
+        if self.current_state.is_some() {
+            self.undos.push(self.current_state.take().unwrap());
+        }
+
+        self.process_result(&instr, input as u16);
+    }
+
 
     // Web UI only
     #[allow(dead_code)]
@@ -2165,6 +2196,15 @@ impl Zmachine {
         self.write_indirect_variable(var as u8, value);
 
         value
+    }
+
+    fn do_set_window(&mut self, window: u16) {
+        let window = match window {
+            0 => Window::Lower,
+            1 => Window::Upper,
+            other => panic!("Illegal window number: {}", other),
+        };
+        self.ui.set_window(window);
     }
 
     // VAR_248 do_not() (same as OP1_143)

@@ -380,7 +380,7 @@ impl Zmachine {
         }
     }
 
-    fn get_abbrev(&self, index: u8) -> String {
+    fn get_abbrev(&self, index: u8, abbreviation_stack: &mut Vec<u8>) -> String {
         if index > 96 {
             panic!("Bad abbrev index: {}", index);
         }
@@ -389,18 +389,14 @@ impl Zmachine {
         let word_addr = self.memory.read_word(self.abbrev_table + offset);
         let addr = word_addr * 2; // "Word addresses are used only in the abbreviations table" - 1.2.2
 
-        self.read_zstring_from_abbrev(addr as usize)
-    }
-
-    fn read_zstring_from_abbrev(&self, addr: usize) -> String {
-        self.read_zstring_impl(addr, false)
+        self.read_zstring_impl(addr as usize, abbreviation_stack)
     }
 
     fn read_zstring(&self, addr: usize) -> String {
-        self.read_zstring_impl(addr, true)
+        self.read_zstring_impl(addr, &mut vec![])
     }
 
-    fn read_zstring_impl(&self, addr: usize, allow_abbrevs: bool) -> String {
+    fn read_zstring_impl(&self, addr: usize, abbreviation_stack: &mut Vec<u8>) -> String {
         use self::ZStringState::*;
 
         let mut state = Alphabet(0);
@@ -414,7 +410,6 @@ impl Zmachine {
                 state = match (zchar, &state) {
                     // the next zchar will be an abbrev index
                     (zch, &Alphabet(_)) if zch >= 1 && zch <= 3 => {
-                        assert!(allow_abbrevs, "Abbrev at {} contained recursive abbrev!", addr);
                         Abbrev(zch)
                     }
                     // shift character for the next zchar
@@ -430,7 +425,13 @@ impl Zmachine {
                     }
                     // get the abbrev at this addr
                     (_, &Abbrev(num)) => {
-                        let abbrev = self.get_abbrev((num - 1) * 32 + zchar);
+                        // NB: recursive abbreviations are banned by the spec, but some game files clearly use them!
+                        // Instead of banning them entirely, check that we're not in an infinite loop.
+                        let index = (num - 1) * 32 + zchar;
+                        assert!(!abbreviation_stack.contains(&index), "Recursive abbreviation at {}", index);
+                        abbreviation_stack.push(index);
+                        let abbrev = self.get_abbrev(index, abbreviation_stack);
+                        abbreviation_stack.pop();
                         zstring.push_str(&abbrev);
                         Alphabet(0)
                     }
@@ -997,7 +998,17 @@ impl Zmachine {
         let release = self.memory.read_word(0x02);
         let serial = self.memory.read(0x12, 6);
 
-        QuetzalSave::make(pc, dynamic, original, frames, chksum, release, serial)
+        let save = QuetzalSave::make(pc, dynamic, original, frames, chksum, release, serial);
+
+        if cfg!(debug_assertions) {
+            let restored = QuetzalSave::from_bytes(&save, original);
+            debug_assert_eq!(pc, restored.pc);
+            debug_assert_eq!(dynamic, &restored.memory[..]);
+            debug_assert_eq!(frames, &restored.frames);
+            debug_assert_eq!(chksum, restored.chksum);
+        }
+
+        save
     }
 
     fn restore_state(&mut self, data: &[u8]) {
@@ -1183,7 +1194,7 @@ impl Zmachine {
                 ((byte & 0b0011_1111) << 8) + read.byte() as usize
             };
 
-            // the offset (if two bytes) is a 14 bit unsigned int: 2^14 = 16384
+            // the offset (if two bytes) is a 14 bit signed int: 2^14 = 16384
             let address = if offset > (16384 / 2) {
                 Some(read.position() + offset - 16384 - 2)
             } else {
@@ -1956,18 +1967,9 @@ impl Zmachine {
         // be saved in. (Saves store the value 2 when successful)
         //
         // (note: this logic only applies to the save/restore instructions)
-        let byte = self.memory.read_byte(self.pc);
-
-        if self.version <= 3 {
-            if byte & 0b1000_0000 != 0 {
-                self.pc += (byte & 0b0011_1111) as usize - 2; // follow branch
-            } else {
-                self.pc += 1; // next instruction
-            }
-        } else {
-            self.pc += 1;
-            self.write_variable(byte, 2); // store "we just restored" value
-        }
+        let instruction = self.decode_instruction(self.pc - 1);
+        assert_eq!(instruction.opcode, Opcode::OP0_181, "Expect to restore from a save instruction!");
+        self.process_result(&instruction, 2);
     }
 
     // OP0_183

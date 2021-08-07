@@ -163,6 +163,13 @@ impl LanguageModel for &Dict {
             return if words.contains(prefix) || prefix.is_empty() { Dict::VALID } else { Dict::INVALID };
         }
 
+        // Assume all numbers are valid inputs. (Names that include them normally don't put them in the dictionary.)
+        // TODO: think about what happens if dictionary words contain digits.
+        if ch.is_ascii_digit() {
+            let starts_with_digit = prefix.chars().next().map_or(true, |c| c.is_ascii_digit());
+            return if starts_with_digit { Dict::VALID } else { Dict::INVALID };
+        }
+
         let mut prefix_string = prefix.to_string();
         if self.contains_prefix(&prefix_string) {
             prefix_string.push(ch);

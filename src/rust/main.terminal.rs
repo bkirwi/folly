@@ -34,7 +34,7 @@ mod zmachine;
 use crate::options::Options;
 use crate::traits::UI;
 use crate::ui_terminal::TerminalUI;
-use crate::zmachine::Zmachine;
+use crate::zmachine::{Zmachine, Step};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -87,5 +87,18 @@ fn main() {
 
     let mut zvm = Zmachine::new(data, ui, opts);
 
-    zvm.run();
+    loop {
+        match zvm.step() {
+            Step::Done => {
+                break;
+            }
+            Step::Restore => {
+                unimplemented!("TODO: restore!");
+            }
+            Step::ReadLine => {
+                let input = zvm.ui.get_user_input();
+                zvm.handle_input(input);
+            }
+        }
+    }
 }

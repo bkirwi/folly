@@ -101,19 +101,7 @@ impl UI for RmUI {
     }
 
     fn message(&self, mtype: &str, msg: &str) {
-        eprintln!("message: '{}' '{}'", mtype, msg);
-        let maybe_action = match mtype {
-            "save" => {
-                let (_, save) = serde_json::from_str::<(String, String)>(msg).unwrap();
-                Some(VmOutput::Save(base64::decode(&save).unwrap()))
-            }
-            "restore" => Some(VmOutput::Restore),
-            _ => None,
-        };
-
-        if let Some(action) = maybe_action {
-            self.channel.send(action).unwrap();
-        }
+        eprintln!("ignoring message: '{}' '{}'", mtype, msg);
     }
 }
 
@@ -489,23 +477,63 @@ impl Session {
 
         self.append_buffer(buffer);
 
-        self.maybe_new_page(88);
-        let last_page = self.pages.len() - 1;
-        let next_element = self.pages.last().len();
+        match result {
+            Step::Save(data) => {
+                self.pages.push_stack(
+                    Element::Line(false, Text::layout(&self.font, "Saving game...", LINE_HEIGHT))
+                );
 
-        let input_id = self.next_input;
-        self.next_input += 1;
-        self.active_input.set(input_id);
-        self.pages.push_stack(Element::Input {
-            id: input_id,
-            active: self.active_input.clone(),
-            prompt: ui::Text::layout(&self.font, "☞", LINE_HEIGHT)
-                .on_touch(Some(Msg::Input { page: last_page, line: next_element, margin: true })),
-            area: ui::InputArea::new(Vector2::new(600, 88))
-                .on_ink(Some(Msg::Input { page: last_page, line: next_element, margin: false })),
-        });
+                let (place, score) = self.zvm.get_status();
+                let now = chrono::offset::Local::now();
+                let save_file_name = format!("{}.sav", now.format("%Y-%m-%dT%H:%M:%S"));
+                let save_path = self.save_root.join(Path::new(&save_file_name));
+                fs::write(&save_path, data).unwrap();
 
-        result
+                let meta = SaveMeta {
+                    location: place,
+                    score_and_turn: score,
+                };
+                let meta_json = serde_json::to_string(&meta).unwrap();
+                let meta_path = save_path.with_extension("meta");
+                fs::write(&meta_path, meta_json).unwrap();
+
+                self.pages.push_stack(Element::Break(LINE_HEIGHT/2));
+                self.pages.push_stack(Element::file_display(
+                    &self.font,
+                    &format!("{} - {}", &meta.location, &meta.score_and_turn),
+                    save_path.to_string_lossy().borrow(),
+                    None
+                ));
+                self.pages.push_stack(Element::Break(LINE_HEIGHT/2));
+
+                eprintln!("Game successfully saved!");
+                self.zvm.handle_save_result(true);
+                self.advance()
+            }
+            Step::Restore => {
+                result
+            }
+            _ => {
+                // Add a prompt
+                self.maybe_new_page(88);
+                let last_page = self.pages.len() - 1;
+                let next_element = self.pages.last().len();
+
+                let input_id = self.next_input;
+                self.next_input += 1;
+                self.active_input.set(input_id);
+                self.pages.push_stack(Element::Input {
+                    id: input_id,
+                    active: self.active_input.clone(),
+                    prompt: ui::Text::layout(&self.font, "☞", LINE_HEIGHT)
+                        .on_touch(Some(Msg::Input { page: last_page, line: next_element, margin: true })),
+                    area: ui::InputArea::new(Vector2::new(600, 88))
+                        .on_ink(Some(Msg::Input { page: last_page, line: next_element, margin: false })),
+                });
+
+                result
+            }
+        }
     }
 }
 
@@ -538,7 +566,7 @@ impl Game {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension() {
-                        if ext == "z3" {
+                        if ext == "z3" || ext == "z5" || ext == "z8" {
                             games.push(path);
                         }
                     }
@@ -706,8 +734,7 @@ impl Game {
                 if n == self.awaiting_ink {
                     session.zvm.handle_input(text);
                     match session.advance() {
-                        SessionState::Running => {}
-                        SessionState::Restoring => {
+                        Step::Restore => {
                             // Start a new page unless the current page is empty
                             // session.maybe_new_page(TEXT_AREA_HEIGHT);
                             let saves = session.load_saves().unwrap();
@@ -718,9 +745,10 @@ impl Game {
                                 session.restore_menu(saves, text_area_shape, false);
                             }
                         }
-                        SessionState::Quitting => {
+                        Step::Done => {
                             self.state = GameState::Init { games: Game::game_page(&self.font, self.size(), &self.root_dir) };
                         }
+                        _ => {}
                     };
                 }
             }
@@ -729,7 +757,7 @@ impl Game {
                 let saves = session.load_saves().unwrap();
                 if saves.is_empty() {
                     let state = session.advance();
-                    assert_eq!(state, SessionState::Running);
+                    assert!(state == Step::ReadLine || state == Step::ReadChar);
                 } else {
                     session.restore_menu(saves, self.size(), true)
                 }
@@ -761,7 +789,7 @@ impl Game {
                         session.restore(&path);
                     }
                     let state = session.advance();
-                    assert_eq!(state, SessionState::Running);
+                    assert!(state == Step::ReadLine || state == Step::ReadChar);
                     session.restore = None;
                 }
             }

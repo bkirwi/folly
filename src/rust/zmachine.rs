@@ -17,7 +17,7 @@ use rand::{Rng, SeedableRng};
 use serde_json;
 use serde::Serialize;
 
-use crate::traits::{Window, UI};
+use crate::traits::{Window, UI, TextStyle};
 use crate::options::Options;
 use crate::buffer::Buffer;
 use crate::frame::Frame;
@@ -123,6 +123,7 @@ impl ObjectProperty {
 #[derive(Eq, PartialEq)]
 pub enum Step {
     Done,
+    Save(Vec<u8>),
     Restore,
     ReadChar,
     ReadLine,
@@ -1348,8 +1349,13 @@ impl Zmachine {
             (VAR_230, &[num]) => self.do_print_num(num),
             (VAR_232, &[value]) => self.do_push(value),
             (VAR_233, &[var]) => { self.do_pull(var); }
+            (VAR_234, &[lines]) => self.do_split_window(lines),
             (VAR_235, &[window]) => self.do_set_window(window),
             (VAR_236, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vs2
+            (VAR_237, &[window]) => self.do_erase_window(window),
+            (VAR_239, &[line, column]) => self.do_set_cursor(line, column),
+            (VAR_241, &[style]) => self.do_set_text_style(style),
+            (VAR_242, _) => (), // set buffering, but does it matter in this day and age?
             (VAR_249, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn
             (VAR_250, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn2
             (VAR_251, &[text_addr, parse_addr]) => self.do_tokenise(text_addr, parse_addr),
@@ -1357,9 +1363,6 @@ impl Zmachine {
             // special cases to no-op: (input/output streams & sound effects)
             // these might be present in some v3 games but aren't implemented yet
             (VAR_243, _) | (VAR_244, _) | (VAR_245, _) => (),
-
-            // these exist in v5, but the game may still be playable without them!
-            (VAR_237, _) | (VAR_241, _) | (VAR_234, _) | (VAR_239, _) | (VAR_242, _) => (),
 
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",
@@ -1510,16 +1513,18 @@ impl Zmachine {
 
             match instr.opcode {
                 // SAVE
-                Opcode::OP0_181 => {
+                Opcode::OP0_181 | Opcode::EXT_1000 => {
                     let pc = instr.next - 1;
                     let state = self.make_save_state(pc);
-                    self.send_save_message("save", &state);
 
-                    // Advance the pc, assuming that the save was successful
-                    self.process_save_result(&instr);
+                    let (location, _) = self.get_status();
+                    self.current_state = Some((location, state.clone()));
+                    self.paused_instr = Some(instr);
+
+                    return Step::Save(state);
                 }
                 // RESTORE (breaks loop)
-                Opcode::OP0_182 => {
+                Opcode::OP0_182 | Opcode::EXT_1001 => {
                     self.paused_instr = Some(instr);
                     return Step::Restore;
                 }
@@ -1547,6 +1552,7 @@ impl Zmachine {
 
                     return Step::ReadLine;
                 }
+                // READ_CHAR
                 Opcode::VAR_246 => {
                     let state = self.make_save_state(self.pc);
 
@@ -1596,9 +1602,6 @@ impl Zmachine {
         self.pc = instr.next;
     }
 
-    // Web UI only - gives user input to the paused read instruction
-    // (passes control back JS afterwards)
-    #[allow(dead_code)]
     pub fn handle_read_char(&mut self, input: char) {
         let instr = self.paused_instr.take().expect(
             "Can't handle input, no paused instruction to resume",
@@ -1613,6 +1616,14 @@ impl Zmachine {
         }
 
         self.process_result(&instr, input as u16);
+    }
+
+    pub fn handle_save_result(&mut self, successful: bool) {
+        let instr = self.paused_instr.take().expect(
+            "Can't handle input, no paused instruction to resume",
+        );
+
+        self.process_result(&instr, if successful { 1 } else { 0 });
     }
 
 
@@ -1999,7 +2010,7 @@ impl Zmachine {
         //
         // (note: this logic only applies to the save/restore instructions)
         let instruction = self.decode_instruction(self.pc - 1);
-        assert_eq!(instruction.opcode, Opcode::OP0_181, "Expect to restore from a save instruction!");
+        // assert_eq!(instruction.opcode, Opcode::OP0_181, "Expect to restore from a save instruction!");
         self.process_result(&instruction, 2);
     }
 
@@ -2198,6 +2209,12 @@ impl Zmachine {
         value
     }
 
+    // VAR_234
+    fn do_split_window(&mut self, lines: u16) {
+        self.ui.split_window(lines);
+    }
+
+    // VAR_235
     fn do_set_window(&mut self, window: u16) {
         let window = match window {
             0 => Window::Lower,
@@ -2205,6 +2222,31 @@ impl Zmachine {
             other => panic!("Illegal window number: {}", other),
         };
         self.ui.set_window(window);
+    }
+
+    // VAR_237
+    fn do_erase_window(&mut self, window: u16) {
+        match window {
+            0 => { self.ui.erase_window(Window::Lower); }
+            1 => { self.ui.erase_window(Window::Upper); }
+            u16::MAX => {
+                self.ui.split_window(0);
+                self.ui.erase_window(Window::Lower);
+            }
+            x if x == u16::MAX - 1 => {
+                self.ui.erase_window(Window::Lower);
+                self.ui.erase_window(Window::Upper);
+            }
+            other => panic!("Illegal window number: {}", other),
+        };
+    }
+
+    fn do_set_cursor(&mut self, line: u16, column: u16) {
+        self.ui.set_cursor(line, column);
+    }
+
+    fn do_set_text_style(&mut self, style: u16) {
+        self.ui.set_text_style(TextStyle::new(style));
     }
 
     // VAR_248 do_not() (same as OP1_143)

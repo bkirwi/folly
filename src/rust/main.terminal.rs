@@ -17,7 +17,7 @@ extern crate serde_derive;
 
 use std::fs::File;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{process, io};
 
 use clap::{App, Arg};
@@ -92,8 +92,71 @@ fn main() {
             Step::Done => {
                 break;
             }
+            Step::Save(data) => {
+                let prompt = format!("\nFilename [{}]: ", zvm.options.save_name);
+                zvm.ui.print(&prompt);
+
+                let input = zvm.ui.get_user_input();
+                let mut path = PathBuf::from(&zvm.options.save_dir);
+                let mut file;
+
+                match input.to_lowercase().as_ref() {
+                    "" | "yes" | "y" => path.push(&zvm.options.save_name),
+                    "no" | "n" | "cancel" => {
+                        zvm.handle_save_result(false);
+                        continue;
+                    }
+                    _ => path.push(input),
+                }
+
+                if let Ok(handle) = File::create(&path) {
+                    file = handle;
+                } else {
+                    zvm.ui.print("Can't save to that file, try another?\n");
+                    zvm.handle_save_result(false);
+                    return;
+                }
+
+                // save file name for next use
+                zvm.options.save_name = path.file_name().unwrap().to_string_lossy().into_owned();
+
+                // The save PC points to either the save instructions branch data or store
+                // data. In either case, this is the last byte of the instruction. (so -1)
+                file.write_all(data.as_slice()).expect("Error saving to file");
+
+                zvm.handle_save_result(true);
+            }
             Step::Restore => {
-                unimplemented!("TODO: restore!");
+                let prompt = format!("\nFilename [{}]: ", &zvm.options.save_name);
+                zvm.ui.print(&prompt);
+
+                let input = zvm.ui.get_user_input();
+                let mut path = PathBuf::from(&zvm.options.save_dir);
+                let mut data = Vec::new();
+                let mut file;
+
+                match input.to_lowercase().as_ref() {
+                    "" | "yes" | "y" => path.push(&zvm.options.save_name),
+                    "no" | "n" | "cancel" => {
+                        panic!("ugh");
+                    }
+                    _ => path.push(input),
+                }
+
+                if let Ok(handle) = File::open(&path) {
+                    file = handle;
+                } else {
+                    panic!("Can't open that file, try another?\n");
+                }
+
+                // save file name for next use
+                zvm.options.save_name = path.file_name().unwrap().to_string_lossy().into_owned();
+
+                // restore program counter position, stack frames, and dynamic memory
+                file.read_to_end(&mut data).expect(
+                    "Error reading save file",
+                );
+                zvm.restore(&base64::encode(&data));
             }
             Step::ReadChar => {
                 let mut input = String::new();

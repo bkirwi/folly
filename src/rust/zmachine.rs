@@ -1482,8 +1482,6 @@ impl Zmachine {
     // Terminal UI only
     #[allow(dead_code)]
     pub fn run(&mut self) {
-        self.ui.clear();
-
         // continue instructions until the quit instruction
         loop {
             let instr = self.decode_instruction(self.pc);
@@ -1494,8 +1492,6 @@ impl Zmachine {
 
             self.handle_instruction(&instr);
         }
-
-        self.ui.reset();
     }
 
     // Web UI only

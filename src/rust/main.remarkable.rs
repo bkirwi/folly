@@ -68,8 +68,6 @@ impl UI for RmUI {
         unimplemented!()
     }
 
-    fn clear(&self) {}
-
     fn print(&mut self, text: &str) {
         eprintln!("print: {}", text);
         self.channel.send(VmOutput::Print(text.to_string()));
@@ -86,10 +84,6 @@ impl UI for RmUI {
 
     fn set_status_bar(&self, left: &str, right: &str) {
         eprintln!("status: {} {}", left, right);
-    }
-
-    fn reset(&self) {
-        unimplemented!("Unexpected reset!");
     }
 
     fn get_user_input(&self) -> String {

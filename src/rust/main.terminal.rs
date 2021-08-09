@@ -85,6 +85,8 @@ fn main() {
     let rand32 = || rand::random();
     opts.rand_seed = [rand32(), rand32(), rand32(), rand32()];
 
+    ui.clear();
+
     let mut zvm = Zmachine::new(data, ui, opts);
 
     loop {
@@ -172,4 +174,6 @@ fn main() {
             }
         }
     }
+
+    println!()
 }

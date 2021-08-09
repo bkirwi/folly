@@ -20,7 +20,6 @@ pub trait UI {
     fn new() -> Box<Self>
     where
         Self: Sized;
-    fn clear(&self);
     fn print(&mut self, text: &str);
     fn debug(&mut self, text: &str);
     fn print_object(&mut self, object: &str);
@@ -33,7 +32,6 @@ pub trait UI {
     fn set_text_style(&mut self, _text_style: TextStyle) {}
 
     // only used by terminal ui
-    fn reset(&self);
     fn get_user_input(&self) -> String;
 
     // only used by web ui

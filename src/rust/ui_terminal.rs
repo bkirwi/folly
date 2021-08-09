@@ -25,6 +25,15 @@ pub struct TerminalUI {
 }
 
 impl TerminalUI {
+
+    pub fn clear(&self) {
+        // Clear screen: ESC [2J
+        // Move cursor to 1x1: [H
+        if self.is_term() {
+            self.print_raw("\x1B[2J\x1B[H");
+        }
+    }
+
     fn print_raw(&self, raw: &str) {
         print!("{}", raw);
         io::stdout().flush().unwrap();
@@ -63,14 +72,6 @@ impl UI for TerminalUI {
                 width: 0,
                 x_position: 0,
             })
-        }
-    }
-
-    fn clear(&self) {
-        // Clear screen: ESC [2J
-        // Move cursor to 1x1: [H
-        if self.is_term() {
-            self.print_raw("\x1B[2J\x1B[H");
         }
     }
 
@@ -168,10 +169,6 @@ impl UI for TerminalUI {
             .to_string()
             .trim()
             .to_string()
-    }
-
-    fn reset(&self) {
-        println!();
     }
 
     // unimplemented, only used in web ui

@@ -54,7 +54,6 @@ const SECTION_BREAK: &str = "* * *";
 
 enum VmOutput {
     Print(String),
-    Save(Vec<u8>),
 }
 
 
@@ -435,36 +434,6 @@ impl Session {
             match action {
                 VmOutput::Print(result) => {
                     buffer.push_str(&result);
-                }
-                VmOutput::Save(data) => {
-                    self.append_buffer(mem::take(&mut buffer));
-
-                    self.pages.push_stack(
-                        Element::Line(false, Text::layout(&self.font, "Saving game...", LINE_HEIGHT))
-                    );
-
-                    let (place, score) = self.zvm.get_status();
-                    let now = chrono::offset::Local::now();
-                    let save_file_name = format!("{}.sav", now.format("%Y-%m-%dT%H:%M:%S"));
-                    let save_path = self.save_root.join(Path::new(&save_file_name));
-                    fs::write(&save_path, data).unwrap();
-
-                    let meta = SaveMeta {
-                        location: place,
-                        score_and_turn: score,
-                    };
-                    let meta_json = serde_json::to_string(&meta).unwrap();
-                    let meta_path = save_path.with_extension("meta");
-                    fs::write(&meta_path, meta_json).unwrap();
-
-                    self.pages.push_stack(Element::Break(LINE_HEIGHT/2));
-                    self.pages.push_stack(Element::file_display(
-                        &self.font,
-                        &format!("{} - {}", &meta.location, &meta.score_and_turn),
-                        save_path.to_string_lossy().borrow(),
-                        None
-                    ));
-                    self.pages.push_stack(Element::Break(LINE_HEIGHT/2));
                 }
             }
         }

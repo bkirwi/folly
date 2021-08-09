@@ -62,10 +62,6 @@ struct RmUI {
 }
 
 impl UI for RmUI {
-    fn new() -> Box<Self> where
-        Self: Sized {
-        unimplemented!()
-    }
 
     fn print(&mut self, text: &str) {
         eprintln!("print: {}", text);
@@ -83,10 +79,6 @@ impl UI for RmUI {
 
     fn set_status_bar(&self, left: &str, right: &str) {
         eprintln!("status: {} {}", left, right);
-    }
-
-    fn get_user_input(&self) -> String {
-        unimplemented!("Unexpected get-user-input!");
     }
 
     fn flush(&mut self) {

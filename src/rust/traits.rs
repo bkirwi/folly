@@ -17,9 +17,6 @@ impl TextStyle {
 }
 
 pub trait UI {
-    fn new() -> Box<Self>
-    where
-        Self: Sized;
     fn print(&mut self, text: &str);
     fn debug(&mut self, text: &str);
     fn print_object(&mut self, object: &str);
@@ -30,9 +27,6 @@ pub trait UI {
     fn erase_window(&mut self, _window: Window) {}
     fn set_cursor(&mut self, _line: u16, _column: u16) {}
     fn set_text_style(&mut self, _text_style: TextStyle) {}
-
-    // only used by terminal ui
-    fn get_user_input(&self) -> String;
 
     // only used by web ui
     fn flush(&mut self);

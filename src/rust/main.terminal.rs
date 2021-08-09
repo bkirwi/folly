@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::{process, io};
 
 use clap::{App, Arg};
+use regex::Regex;
 
 mod buffer;
 mod frame;
@@ -37,6 +38,27 @@ use crate::ui_terminal::TerminalUI;
 use crate::zmachine::{Zmachine, Step};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+lazy_static! {
+    static ref ANSI_RE: Regex = Regex::new(
+        r"[\x1b\x9b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PRZcf-nqry=><]"
+    ).unwrap();
+}
+
+fn get_user_input() -> String {
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("Error reading input");
+
+    // trim, strip and control sequences that might have gotten in,
+    // and then trim once more to get rid of any excess whitespace
+    ANSI_RE
+        .replace_all(input.trim(), "")
+        .to_string()
+        .trim()
+        .to_string()
+}
 
 fn main() {
     let matches = App::new("encrusted")
@@ -98,7 +120,7 @@ fn main() {
                 let prompt = format!("\nFilename [{}]: ", zvm.options.save_name);
                 zvm.ui.print(&prompt);
 
-                let input = zvm.ui.get_user_input();
+                let input = get_user_input();
                 let mut path = PathBuf::from(&zvm.options.save_dir);
                 let mut file;
 
@@ -132,7 +154,7 @@ fn main() {
                 let prompt = format!("\nFilename [{}]: ", &zvm.options.save_name);
                 zvm.ui.print(&prompt);
 
-                let input = zvm.ui.get_user_input();
+                let input = get_user_input();
                 let mut path = PathBuf::from(&zvm.options.save_dir);
                 let mut data = Vec::new();
                 let mut file;
@@ -169,7 +191,7 @@ fn main() {
                 zvm.handle_read_char(ch);
             }
             Step::ReadLine => {
-                let input = zvm.ui.get_user_input();
+                let input = get_user_input();
                 zvm.handle_input(input);
             }
         }

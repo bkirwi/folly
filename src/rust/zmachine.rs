@@ -1333,8 +1333,8 @@ impl Zmachine {
             (OP0_177, _) => self.do_rfalse(),
             (OP0_178, _) => self.do_print(instr),
             (OP0_179, _) => self.do_print_ret(instr),
-            (OP0_181, _) => self.do_save(instr),
-            (OP0_182, _) => self.do_restore(instr),
+            // (OP0_181, _) => self.do_save(instr),
+            // (OP0_182, _) => self.do_restore(instr),
             (OP0_183, _) => self.do_restart(),
             (OP0_184, _) => self.do_ret_popped(),
             (OP0_185, _) => self.do_pop(),
@@ -1344,7 +1344,7 @@ impl Zmachine {
             (VAR_225, &[array, index, value]) => self.do_storew(array, index, value),
             (VAR_226, &[array, index, value]) => self.do_storeb(array, index, value),
             (VAR_227, &[obj, prop, value]) => self.do_put_prop(obj, prop, value),
-            (VAR_228, &[text, parse]) => self.do_sread(instr, text, parse),
+            // (VAR_228, &[text, parse]) => self.do_sread(instr, text, parse),
             (VAR_229, &[chr]) => self.do_print_char(chr),
             (VAR_230, &[num]) => self.do_print_num(num),
             (VAR_232, &[value]) => self.do_push(value),
@@ -1530,16 +1530,15 @@ impl Zmachine {
                     // "are you sure?" dialog box that usually shows up:
                     self.undos.pop();
 
-                    if let Some((_, state)) = self.undos.pop() {
-                        self.send_save_message("savestate", &state);
-                    }
+                    // if let Some((_, state)) = self.undos.pop() {
+                    //     self.send_save_message("savestate", &state);
+                    // }
 
                     return Step::Done; // done == true
                 }
                 // READ (breaks loop)
                 Opcode::VAR_228 => {
                     let state = self.make_save_state(self.pc);
-                    self.send_save_message("savestate", &state);
 
                     // web ui saves current state here BEFORE processing user input
                     let (location, _) = self.get_status();
@@ -1644,18 +1643,6 @@ impl Zmachine {
     pub fn load_savestate(&mut self, data: &str) {
         let state = base64::decode(data).unwrap();
         self.restore_state(state.as_slice());
-    }
-
-    // Web UI only
-    #[allow(dead_code)]
-    fn send_save_message(&mut self, msg_type: &str, state: &[u8]) {
-        let b64 = base64::encode(&state);
-
-        let (location, info) = self.get_status();
-        let status = [&location, " - ", &info].concat();
-
-        let msg_body = serde_json::to_string(&(status, b64)).unwrap();
-        self.ui.message(msg_type, &msg_body);
     }
 }
 
@@ -1913,86 +1900,10 @@ impl Zmachine {
 
     // OP0_180 : nop, never actually used
 
-    // OP0_181
-    fn do_save(&mut self, instr: &Instruction) {
-        let prompt = format!("\nFilename [{}]: ", self.save_name);
-        self.ui.print(&prompt);
-
-        let input = self.ui.get_user_input();
-        let mut path = PathBuf::from(&self.save_dir);
-        let mut file;
-
-        match input.to_lowercase().as_ref() {
-            "" | "yes" | "y" => path.push(&self.save_name),
-            "no" | "n" | "cancel" => {
-                self.process_result(instr, 0);
-                return;
-            }
-            _ => path.push(input),
-        }
-
-        if let Ok(handle) = File::create(&path) {
-            file = handle;
-        } else {
-            self.ui.print("Can't save to that file, try another?\n");
-            self.process_result(instr, 0);
-            return;
-        }
-
-        // save file name for next use
-        self.save_name = path.file_name().unwrap().to_string_lossy().into_owned();
-
-        // The save PC points to either the save instructions branch data or store
-        // data. In either case, this is the last byte of the instruction. (so -1)
-        let pc = instr.next - 1;
-        let data = self.make_save_state(pc);
-        file.write_all(&data[..]).expect("Error saving to file");
-
-        self.process_save_result(instr);
-    }
-
     fn process_save_result(&mut self, instr: &Instruction) {
         // (v1-3): follow branch if needed (value "1" means the save succeeded)
         // (v4+):  or store the value "1" at the give store position
         self.process_result(instr, 1);
-    }
-
-    // OP0_182
-    fn do_restore(&mut self, instr: &Instruction) {
-        let prompt = format!("\nFilename [{}]: ", self.save_name);
-        self.ui.print(&prompt);
-
-        let input = self.ui.get_user_input();
-        let mut path = PathBuf::from(&self.save_dir);
-        let mut data = Vec::new();
-        let mut file;
-
-        match input.to_lowercase().as_ref() {
-            "" | "yes" | "y" => path.push(&self.save_name),
-            "no" | "n" | "cancel" => {
-                self.process_result(instr, 0);
-                return;
-            }
-            _ => path.push(input),
-        }
-
-        if let Ok(handle) = File::open(&path) {
-            file = handle;
-        } else {
-            self.ui.print("Can't open that file, try another?\n");
-            self.process_result(instr, 0);
-            return;
-        }
-
-        // save file name for next use
-        self.save_name = path.file_name().unwrap().to_string_lossy().into_owned();
-
-        // restore program counter position, stack frames, and dynamic memory
-        file.read_to_end(&mut data).expect(
-            "Error reading save file",
-        );
-        self.restore_state(data.as_slice());
-        self.process_restore_result();
     }
 
     fn process_restore_result(&mut self) {
@@ -2099,43 +2010,7 @@ impl Zmachine {
         self.put_prop(obj, prop, value);
     }
 
-    // VAR_228
-    fn do_sread(&mut self, instr: &Instruction, text_addr: u16, parse_addr: u16) {
-        // need to update the status bar before each read
-        self.update_status_bar();
-        // add extra space so it doesn't look janky (non-spec)
-        // self.ui.print(" ");
-
-        let input = self.ui.get_user_input();
-
-        // handle special debugging commands
-        // these inputs shouldn't be processed normally
-        if self.is_debug_command(&input) {
-            if self.handle_debug_command(&input) {
-                self.ui.print("\n>");
-                self.do_sread(instr, text_addr, parse_addr);
-            }
-
-            return;
-        }
-
-        self.do_sread_second(text_addr, parse_addr, input);
-
-        // save state JUST after having processed user input
-        // new input changes timelines, so remove any obsolete redos
-        self.redos.clear();
-
-        // push the current state into the undo list
-        if self.current_state.is_some() {
-            self.undos.push(self.current_state.take().unwrap());
-        }
-
-        // and save the current state
-        let location = self.get_object_name(self.read_global(0));
-        let state = self.make_save_state(instr.next);
-        self.current_state = Some((location, state));
-    }
-
+    // VAR_228 (blocking)
     fn do_sread_second(&mut self, text_addr: u16, parse_addr: u16, mut raw: String) {
         let text_addr = text_addr as usize;
         let parse_addr = parse_addr as usize;

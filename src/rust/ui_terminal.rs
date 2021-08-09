@@ -4,17 +4,10 @@ use std::boxed::Box;
 use std::io;
 use std::io::Write;
 
-use regex::Regex;
 use atty::Stream;
 use term_size;
 
 use crate::traits::{UI, Window};
-
-lazy_static! {
-    static ref ANSI_RE: Regex = Regex::new(
-        r"[\x1b\x9b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PRZcf-nqry=><]"
-    ).unwrap();
-}
 
 #[derive(Debug)]
 pub struct TerminalUI {
@@ -25,6 +18,24 @@ pub struct TerminalUI {
 }
 
 impl TerminalUI {
+
+    pub fn new() -> Box<TerminalUI> {
+        if let Some((w, _)) = term_size::dimensions() {
+            Box::new(TerminalUI {
+                isatty: atty::is(Stream::Stdout),
+                active_window: Window::Lower,
+                width: w,
+                x_position: 0,
+            })
+        } else {
+            Box::new(TerminalUI {
+                isatty: false,
+                active_window: Window::Lower,
+                width: 0,
+                x_position: 0,
+            })
+        }
+    }
 
     pub fn clear(&self) {
         // Clear screen: ESC [2J
@@ -57,24 +68,6 @@ impl TerminalUI {
 }
 
 impl UI for TerminalUI {
-    fn new() -> Box<TerminalUI> {
-        if let Some((w, _)) = term_size::dimensions() {
-            Box::new(TerminalUI {
-                isatty: atty::is(Stream::Stdout),
-                active_window: Window::Lower,
-                width: w,
-                x_position: 0,
-            })
-        } else {
-            Box::new(TerminalUI {
-                isatty: false,
-                active_window: Window::Lower,
-                width: 0,
-                x_position: 0,
-            })
-        }
-    }
-
     fn print(&mut self, text: &str) {
         if self.active_window == Window::Upper {
             return;
@@ -154,21 +147,6 @@ impl UI for TerminalUI {
 
     fn set_window(&mut self, window: Window) {
         self.active_window = window;
-    }
-
-    fn get_user_input(&self) -> String {
-        let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Error reading input");
-
-        // trim, strip and control sequences that might have gotten in,
-        // and then trim once more to get rid of any excess whitespace
-        ANSI_RE
-            .replace_all(input.trim(), "")
-            .to_string()
-            .trim()
-            .to_string()
     }
 
     // unimplemented, only used in web ui

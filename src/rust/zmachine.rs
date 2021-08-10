@@ -40,7 +40,7 @@ pub struct Object {
 }
 
 impl Object {
-    fn new(number: u16, zvm: &Zmachine) -> Box<Object> {
+    fn new<T>(number: u16, zvm: &Zmachine<T>) -> Box<Object> {
         let mut name = if number > 0 {
             zvm.get_object_name(number)
         } else {
@@ -129,8 +129,8 @@ pub enum Step {
     ReadLine,
 }
 
-pub struct Zmachine {
-    pub ui: Box<UI>,
+pub struct Zmachine<ZUI=()> {
+    pub ui: ZUI,
     pub options: Options,
     pub instr_log: String,
     version: u8,
@@ -160,8 +160,8 @@ pub struct Zmachine {
     rng: rand::XorShiftRng,
 }
 
-impl Zmachine {
-    pub fn new(data: Vec<u8>, ui: Box<UI>, options: Options) -> Zmachine {
+impl<ZUI> Zmachine<ZUI> {
+    pub fn new(data: Vec<u8>, ui: ZUI, options: Options) -> Zmachine<ZUI> {
         let memory = Buffer::new(data);
 
         let version = memory.read_byte(0x00);
@@ -170,9 +170,9 @@ impl Zmachine {
         let static_start = memory.read_word(0x0E) as usize;
 
         let alphabet = if version >= 5 {
-            Zmachine::load_alphabet(&memory)
+            Zmachine::<ZUI>::load_alphabet(&memory)
         } else {
-            Zmachine::default_alphabet()
+            Zmachine::<ZUI>::default_alphabet()
         };
 
         let mut zvm = Zmachine {
@@ -235,9 +235,9 @@ impl Zmachine {
         let A2 = " ......\n0123456789.,!?_#'\"/\\-:()";
 
         [
-            Zmachine::to_alphabet_entry(A0),
-            Zmachine::to_alphabet_entry(A1),
-            Zmachine::to_alphabet_entry(A2),
+            Zmachine::<()>::to_alphabet_entry(A0),
+            Zmachine::<()>::to_alphabet_entry(A1),
+            Zmachine::<()>::to_alphabet_entry(A2),
         ]
     }
 
@@ -246,7 +246,7 @@ impl Zmachine {
         let alphabet_addr = memory.read_word(0x34) as usize;
 
         if alphabet_addr == 0 {
-            Zmachine::default_alphabet()
+            Zmachine::<()>::default_alphabet()
         } else {
             let A0 = format!(" .....{}", str::from_utf8(memory.read(alphabet_addr, 26)).expect("bad alphabet table A0!"));
             let A1 = format!(" .....{}", str::from_utf8(memory.read(alphabet_addr + 26, 26)).expect("bad alphabet table A1!"));
@@ -254,9 +254,9 @@ impl Zmachine {
             let A2 = format!(" ......\n{}", str::from_utf8(memory.read(alphabet_addr + 26 + 26 + 2, 24)).expect("Bad alphabet table A2!"));
 
             [
-                Zmachine::to_alphabet_entry(&A0),
-                Zmachine::to_alphabet_entry(&A1),
-                Zmachine::to_alphabet_entry(&A2),
+                Zmachine::<()>::to_alphabet_entry(&A0),
+                Zmachine::<()>::to_alphabet_entry(&A1),
+                Zmachine::<()>::to_alphabet_entry(&A2),
             ]
         }
     }
@@ -670,7 +670,7 @@ impl Zmachine {
         let parents_first_child = self.get_child(parent);
         let younger_sibling = self.get_sibling(object);
 
-        fn get_older(this: &Zmachine, obj: u16, prev: u16) -> u16 {
+        fn get_older<ZUI>(this: &Zmachine<ZUI>, obj: u16, prev: u16) -> u16 {
             let next = this.get_sibling(prev);
             if next == obj {
                 prev
@@ -980,7 +980,9 @@ impl Zmachine {
 
         (left, right)
     }
+}
 
+impl<ZUI: UI> Zmachine<ZUI> {
     pub fn update_status_bar(&self) {
         // status bar only used in v1-3
         if self.version > 3 {
@@ -1647,7 +1649,7 @@ impl Zmachine {
 }
 
 // Instruction handlers
-impl Zmachine {
+impl<ZUI: UI> Zmachine<ZUI> {
     // OP2_1
     fn do_je(&self, a: u16, values: &[u16]) -> u16 {
         if values.iter().any(|x| a == *x) { 1 } else { 0 }
@@ -2175,7 +2177,7 @@ impl Zmachine {
 
 // debug functions
 #[allow(dead_code)]
-impl Zmachine {
+impl<ZUI: UI> Zmachine<ZUI> {
     fn debug_header(&mut self) {
         let version = self.memory.read_byte(0x00);
         let release = self.memory.read_word(0x02);
@@ -2527,7 +2529,7 @@ impl Zmachine {
         let first_instr = self.decode_instruction(read.position());
         let mut set: HashSet<Instruction> = HashSet::new();
 
-        fn follow(zvm: &Zmachine, set: &mut HashSet<Instruction>, instr: Instruction) {
+        fn follow<ZUI: UI>(zvm: &Zmachine<ZUI>, set: &mut HashSet<Instruction>, instr: Instruction) {
             if set.contains(&instr) {
                 return;
             }

@@ -8,12 +8,12 @@ pub enum Window {
 pub struct TextStyle(u16);
 
 impl TextStyle {
-    pub(crate) fn new(flags: u16) -> TextStyle { TextStyle(flags) }
-    fn roman(self) -> bool { self.0 == 0 }
-    fn reverse_video(self) -> bool { self.0 & 0b0001 != 0 }
-    fn bold(self) -> bool { self.0 & 0b0010 != 0 }
-    fn italic(self) -> bool { self.0 & 0b0100 != 0 }
-    fn fixed_pitch(self) -> bool { self.0 & 0b1000 != 0 }
+    pub fn new(flags: u16) -> TextStyle { TextStyle(flags) }
+    pub fn roman(self) -> bool { self.0 == 0 }
+    pub fn reverse_video(self) -> bool { self.0 & 0b0001 != 0 }
+    pub fn bold(self) -> bool { self.0 & 0b0010 != 0 }
+    pub fn italic(self) -> bool { self.0 & 0b0100 != 0 }
+    pub fn fixed_pitch(self) -> bool { self.0 & 0b1000 != 0 }
 }
 
 pub trait UI {

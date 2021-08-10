@@ -31,9 +31,9 @@ use rusttype::Font;
 use serde::{Deserialize, Serialize};
 
 use crate::options::Options;
-use crate::traits::UI;
+use crate::traits::{UI, Window, TextStyle};
 use crate::zmachine::{Zmachine, Step};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 mod buffer;
@@ -52,43 +52,178 @@ const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
 
 const SECTION_BREAK: &str = "* * *";
 
-enum VmOutput {
-    Print(String),
+enum RmOutput {
+    Upper {
+        lines: Vec<Vec<(TextStyle, char)>>
+    },
+    Lower {
+        style: TextStyle,
+        content: String,
+    },
+    EraseLower,
 }
-
 
 struct RmUI {
-    channel: mpsc::Sender<VmOutput>,
+    current_window: Window,
+    current_style: TextStyle,
+    upper_cursor: (u16, u16),
+    upper_lines: Vec<Vec<(TextStyle, char)>>,
+    stuff: Vec<RmOutput>,
 }
 
-impl UI for RmUI {
+impl RmUI {
+    fn new() -> RmUI {
+        RmUI {
+            current_window: Window::Lower,
+            current_style: TextStyle::new(0),
+            upper_cursor: (0, 0),
+            upper_lines: vec![],
+            stuff: vec![],
+        }
+    }
+}
 
+
+impl UI for RmUI {
     fn print(&mut self, text: &str) {
-        eprintln!("print: {}", text);
-        self.channel.send(VmOutput::Print(text.to_string()));
+        match self.current_window {
+            Window::Lower => {
+                match self.stuff.last_mut() {
+                    Some(RmOutput::Lower { style, content })
+                    if style == self.current_style => {
+                        content.push_str(text);
+                    }
+                    _ => {
+                        self.stuff.push(RmOutput::Lower {
+                            style: self.current_style,
+                            content: text.to_string()
+                        })
+                    }
+                }
+            }
+            Window::Upper => {
+                let line_number = self.upper_cursor.0 as usize;
+                let window_len = self.upper_lines.len();
+                if window_len <= line_number {
+                    self.split_window(self.upper_cursor.0 + 1);
+                }
+
+                let line = &mut self.upper_lines[line_number];
+                let mut index = self.upper_cursor.1 as usize;
+
+                for c in text.chars() {
+                    for i in line.len()..=index {
+                        line.push((TextStyle::new(0), ' '));
+                    }
+                    line[index] = (self.current_style, c);
+                }
+            }
+        }
     }
 
     fn debug(&mut self, text: &str) {
-        eprintln!("debug: {}", text);
+        eprintln!("Debug text: {}", text)
     }
 
     fn print_object(&mut self, object: &str) {
-        eprintln!("print_obj: {}", object);
-        self.channel.send(VmOutput::Print(object.to_string()));
+        self.print(object);
     }
 
     fn set_status_bar(&self, left: &str, right: &str) {
-        eprintln!("status: {} {}", left, right);
     }
 
-    fn flush(&mut self) {
-        eprintln!("flush");
+    fn split_window(&mut self, lines: u16) {
+        let current_lines = self.upper_lines.len();
+        let requested_lines = lines as usize;
+        if current_lines > requested_lines {
+            self.stuff.push(RmOutput::Upper { lines: self.upper_lines.clone() });
+            self.upper_lines.truncate(requested_lines);
+        } else if current_lines < requested_lines {
+            for _ in current_lines..requested_lines {
+                self.upper_lines.push(vec![]);
+            }
+        }
     }
 
-    fn message(&self, mtype: &str, msg: &str) {
-        eprintln!("ignoring message: '{}' '{}'", mtype, msg);
+    fn set_window(&mut self, window: Window) {
+        self.current_window = window;
+
+        match window {
+            Window::Lower => {
+                self.stuff.push(RmOutput::Upper { lines: self.upper_lines.clone() });
+            }
+            Window::Upper => {
+                self.upper_cursor = (0, 0);
+            }
+        }
     }
+
+    fn erase_window(&mut self, window: Window) {
+        match window {
+            Window::Lower => {
+                self.stuff.push(RmOutput::EraseLower);
+            }
+            Window::Upper => {
+                for line in &mut self.upper_lines {
+                    line.clear();
+                }
+            }
+        }
+    }
+
+    fn set_cursor(&mut self, line: u16, column: u16) {
+        if self.current_window == Window::Upper {
+            // If this is out of bounds, we'll fix it in `print`.
+            self.upper_cursor = (line, column);
+        }
+    }
+
+    fn set_text_style(&mut self, text_style: TextStyle) {
+        self.current_style = text_style;
+    }
+
+    fn flush(&mut self) {}
+
+    fn message(&self, mtype: &str, msg: &str) {}
 }
+
+// enum VmOutput {
+//     Print(String),
+// }
+//
+//
+// struct RmUI {
+//     channel: mpsc::Sender<VmOutput>,
+// }
+//
+// impl UI for RmUI {
+//
+//     fn print(&mut self, text: &str) {
+//         eprintln!("print: {}", text);
+//         self.channel.send(VmOutput::Print(text.to_string()));
+//     }
+//
+//     fn debug(&mut self, text: &str) {
+//         eprintln!("debug: {}", text);
+//     }
+//
+//     fn print_object(&mut self, object: &str) {
+//         eprintln!("print_obj: {}", object);
+//         self.channel.send(VmOutput::Print(object.to_string()));
+//     }
+//
+//     fn set_status_bar(&self, left: &str, right: &str) {
+//         eprintln!("status: {} {}", left, right);
+//     }
+//
+//     fn flush(&mut self) {
+//         eprintln!("flush");
+//     }
+//
+//     fn message(&self, mtype: &str, msg: &str) {
+//         eprintln!("ignoring message: '{}' '{}'", mtype, msg);
+//     }
+// }
 
 #[derive(Debug, Clone)]
 struct Dict(BTreeSet<String>);
@@ -551,9 +686,7 @@ impl Game {
 
         let (vm_tx, vm_rx) = mpsc::channel();
 
-        let mut ui = RmUI {
-            channel: vm_tx
-        };
+        let mut ui = RmUI::new();
         let mut opts = Options::default();
 
         let mut zvm = Zmachine::new(data, Box::new(ui), opts);

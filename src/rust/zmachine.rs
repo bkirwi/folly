@@ -1542,8 +1542,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 Opcode::VAR_228 => {
                     let state = self.make_save_state(self.pc);
 
+                    self.update_status_bar();
+
                     // web ui saves current state here BEFORE processing user input
-                    let (location, _) = self.get_status();
+                    let (location, score) = self.get_status();
                     self.current_state = Some((location, state));
                     self.paused_instr = Some(instr);
 

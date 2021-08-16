@@ -98,7 +98,7 @@ fn main() {
         process::exit(1);
     }
 
-    let ui = TerminalUI::new();
+    let ui = *TerminalUI::new();
 
     let mut opts = Options::default();
     opts.save_dir = path.parent().unwrap().to_string_lossy().into_owned();

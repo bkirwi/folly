@@ -1339,7 +1339,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             // (OP0_182, _) => self.do_restore(instr),
             (OP0_183, _) => self.do_restart(),
             (OP0_184, _) => self.do_ret_popped(),
-            (OP0_185, _) => self.do_pop(),
+            (OP0_185, _) if self.version < 5 => self.do_pop(),
             (OP0_187, _) => self.do_newline(),
             (OP0_188, _) => self.do_show_status(),
             (VAR_224, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call

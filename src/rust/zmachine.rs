@@ -120,7 +120,7 @@ impl ObjectProperty {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum Step {
     Done,
     Save(Vec<u8>),

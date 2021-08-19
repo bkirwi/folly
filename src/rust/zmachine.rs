@@ -2491,10 +2491,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let num = self.get_object_number(input);
 
         if num == 0 {
-            self.ui.print("I can't find that room...\n");
+            self.ui.debug("I can't find that room...\n");
             return;
         } else {
-            self.ui.print("Zzzap! Somehow you are in a different place...\n");
+            self.ui.debug("Zzzap! Somehow you are in a different place...\n");
         }
 
         self.insert_obj(you, num);
@@ -2505,10 +2505,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let num = self.get_object_number(input);
 
         if num == 0 {
-            self.ui.print("I can't find that object...\n");
+            self.ui.debug("I can't find that object...\n");
             return;
         } else {
-            self.ui.print(&format!("Zzzing! Somehow you are holding the {}...\n", input));
+            self.ui.debug(&format!("Zzzing! Somehow you are holding the {}...\n", input));
         }
 
         self.insert_obj(num, you);

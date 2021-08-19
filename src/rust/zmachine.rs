@@ -1372,6 +1372,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_235, &[window]) => self.do_set_window(window),
             (VAR_236, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vs2
             (VAR_237, &[window]) => self.do_erase_window(window),
+            (VAR_239, &[_]) => (), // this is only specified for v6, but some v5/v8 games have it
             (VAR_239, &[line, column]) => self.do_set_cursor(line, column),
             (VAR_241, &[style]) => self.do_set_text_style(style),
             (VAR_242, _) => (), // set buffering, but does it matter in this day and age?
@@ -1380,8 +1381,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_251, &[text_addr, parse_addr]) => self.do_tokenise(text_addr, parse_addr),
 
             // special cases to no-op: (input/output streams & sound effects)
-            // these might be present in some v3 games but aren't implemented yet
-            (VAR_243, _) | (VAR_244, _) | (VAR_245, _) => (),
+            // (VAR_243, _) | (VAR_244, _) => ,
+            (VAR_245, _) => (), // sound effects not supported!
 
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",

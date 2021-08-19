@@ -206,6 +206,23 @@ impl<ZUI> Zmachine<ZUI> {
             options,
         };
 
+        // Provide the game some information about the interpreter it's running in.
+        if version >= 5 {
+            let (width, height) = zvm.options.dimensions;
+            // yes, the order switches between the two!
+            zvm.memory.write_byte(0x20, height as u8);
+            zvm.memory.write_byte(0x21, width as u8);
+            zvm.memory.write_word(0x22, width);
+            zvm.memory.write_word(0x24, height);
+            zvm.memory.write_byte(0x26, 1);
+            zvm.memory.write_byte(0x27, 1);
+        }
+
+        // clear bits for features we don't support: pictures, undo, mouse, sound
+        let mut flags2 = zvm.memory.read_byte(0x10);
+        flags2 &= 0b11100010;
+        zvm.memory.write_byte(0x10, flags2);
+
         // read into dictionary & word separators
         zvm.populate_dictionary();
 

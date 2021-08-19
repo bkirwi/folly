@@ -31,7 +31,7 @@ use rusttype::Font;
 use serde::{Deserialize, Serialize};
 
 use crate::options::Options;
-use crate::traits::{UI, Window, TextStyle};
+use crate::traits::{UI, BaseUI, BaseOutput, Window, TextStyle};
 use crate::zmachine::{Zmachine, Step};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -49,181 +49,9 @@ const TOP_MARGIN: i32 = 200;
 const LINE_HEIGHT: i32 = 44;
 const LINE_LENGTH: i32 = 1000;
 const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
+const CHARS_PER_LINE: usize = 50;
 
 const SECTION_BREAK: &str = "* * *";
-
-enum RmOutput {
-    Upper {
-        lines: Vec<Vec<(TextStyle, char)>>
-    },
-    Lower {
-        style: TextStyle,
-        content: String,
-    },
-    EraseLower,
-}
-
-struct RmUI {
-    current_window: Window,
-    current_style: TextStyle,
-    upper_cursor: (u16, u16),
-    upper_lines: Vec<Vec<(TextStyle, char)>>,
-    stuff: Vec<RmOutput>,
-}
-
-impl RmUI {
-    fn new() -> RmUI {
-        RmUI {
-            current_window: Window::Lower,
-            current_style: TextStyle::new(0),
-            upper_cursor: (0, 0),
-            upper_lines: vec![],
-            stuff: vec![],
-        }
-    }
-}
-
-
-impl UI for RmUI {
-    fn print(&mut self, text: &str) {
-        match self.current_window {
-            Window::Lower => {
-                match self.stuff.last_mut() {
-                    Some(RmOutput::Lower { style, content })
-                    if style == self.current_style => {
-                        content.push_str(text);
-                    }
-                    _ => {
-                        self.stuff.push(RmOutput::Lower {
-                            style: self.current_style,
-                            content: text.to_string()
-                        })
-                    }
-                }
-            }
-            Window::Upper => {
-                let line_number = self.upper_cursor.0 as usize;
-                let window_len = self.upper_lines.len();
-                if window_len <= line_number {
-                    self.split_window(self.upper_cursor.0 + 1);
-                }
-
-                let line = &mut self.upper_lines[line_number];
-                let mut index = self.upper_cursor.1 as usize;
-
-                for c in text.chars() {
-                    for i in line.len()..=index {
-                        line.push((TextStyle::new(0), ' '));
-                    }
-                    line[index] = (self.current_style, c);
-                }
-            }
-        }
-    }
-
-    fn debug(&mut self, text: &str) {
-        eprintln!("Debug text: {}", text)
-    }
-
-    fn print_object(&mut self, object: &str) {
-        self.print(object);
-    }
-
-    fn set_status_bar(&self, left: &str, right: &str) {
-    }
-
-    fn split_window(&mut self, lines: u16) {
-        let current_lines = self.upper_lines.len();
-        let requested_lines = lines as usize;
-        if current_lines > requested_lines {
-            self.stuff.push(RmOutput::Upper { lines: self.upper_lines.clone() });
-            self.upper_lines.truncate(requested_lines);
-        } else if current_lines < requested_lines {
-            for _ in current_lines..requested_lines {
-                self.upper_lines.push(vec![]);
-            }
-        }
-    }
-
-    fn set_window(&mut self, window: Window) {
-        self.current_window = window;
-
-        match window {
-            Window::Lower => {
-                self.stuff.push(RmOutput::Upper { lines: self.upper_lines.clone() });
-            }
-            Window::Upper => {
-                self.upper_cursor = (0, 0);
-            }
-        }
-    }
-
-    fn erase_window(&mut self, window: Window) {
-        match window {
-            Window::Lower => {
-                self.stuff.push(RmOutput::EraseLower);
-            }
-            Window::Upper => {
-                for line in &mut self.upper_lines {
-                    line.clear();
-                }
-            }
-        }
-    }
-
-    fn set_cursor(&mut self, line: u16, column: u16) {
-        if self.current_window == Window::Upper {
-            // If this is out of bounds, we'll fix it in `print`.
-            self.upper_cursor = (line, column);
-        }
-    }
-
-    fn set_text_style(&mut self, text_style: TextStyle) {
-        self.current_style = text_style;
-    }
-
-    fn flush(&mut self) {}
-
-    fn message(&self, mtype: &str, msg: &str) {}
-}
-
-// enum VmOutput {
-//     Print(String),
-// }
-//
-//
-// struct RmUI {
-//     channel: mpsc::Sender<VmOutput>,
-// }
-//
-// impl UI for RmUI {
-//
-//     fn print(&mut self, text: &str) {
-//         eprintln!("print: {}", text);
-//         self.channel.send(VmOutput::Print(text.to_string()));
-//     }
-//
-//     fn debug(&mut self, text: &str) {
-//         eprintln!("debug: {}", text);
-//     }
-//
-//     fn print_object(&mut self, object: &str) {
-//         eprintln!("print_obj: {}", object);
-//         self.channel.send(VmOutput::Print(object.to_string()));
-//     }
-//
-//     fn set_status_bar(&self, left: &str, right: &str) {
-//         eprintln!("status: {} {}", left, right);
-//     }
-//
-//     fn flush(&mut self) {
-//         eprintln!("flush");
-//     }
-//
-//     fn message(&self, mtype: &str, msg: &str) {
-//         eprintln!("ignoring message: '{}' '{}'", mtype, msg);
-//     }
-// }
 
 #[derive(Debug, Clone)]
 struct Dict(BTreeSet<String>);
@@ -326,6 +154,7 @@ enum Element {
         big_text: Text<'static, Msg>,
         small_text: Text<'static, Msg>,
     },
+    UpperWindow(Vec<ui::Text<'static, Msg>>),
 }
 
 impl Element {
@@ -334,6 +163,23 @@ impl Element {
             big_text: Text::layout(&font, &big_text, LINE_HEIGHT * 4 / 3).on_touch(msg.clone()),
             small_text: Text::layout(&font, &path_str, LINE_HEIGHT * 2 / 3).on_touch(msg)
         }
+    }
+
+    fn upper_window(font: &Font<'static>, lines: &Vec<Vec<(TextStyle, char)>>) -> Option<Element> {
+
+        if lines.is_empty() {
+            return None;
+        }
+
+        let mut widgets = vec![];
+
+        for line in lines {
+            let flattened: String = line.into_iter().take(CHARS_PER_LINE).map(|(_,c)| c).collect();
+            let widget = Text::layout(font, &flattened, 34);
+            widgets.push(widget);
+        }
+
+        Some(Element::UpperWindow(widgets))
     }
 }
 
@@ -347,6 +193,7 @@ impl Widget for Element {
             Element::Line(_, t) => t.size().y,
             Element::Input { area: i, .. } => i.size().y,
             Element::File { .. } => LINE_HEIGHT * 2,
+            Element::UpperWindow(lines) => LINE_HEIGHT * lines.len() as i32,
         };
         Vector2::new(width, height)
     }
@@ -394,6 +241,11 @@ impl Widget for Element {
                 sink.render_split(big_text, Side::Top, 0.0);
                 small_text.render(sink);
             }
+            Element::UpperWindow(lines) => {
+                for line in lines {
+                    sink.render_split(line, Side::Top, 0.0);
+                }
+            }
         }
     }
 }
@@ -412,24 +264,18 @@ enum SessionState {
 }
 
 struct Session {
-    font: Font<'static>,
-    zvm: Zmachine,
+    font: Fonts,
+    zvm: Zmachine<BaseUI>,
+    zvm_state: Step,
     dict: Arc<Dict>,
     next_input: usize,
     active_input: Rc<Cell<usize>>,
-    actions: mpsc::Receiver<VmOutput>,
     pages: Paged<Stack<Element>>,
     restore: Option<Paged<Stack<Element>>>,
     save_root: PathBuf,
 }
 
 impl Session {
-    pub fn maybe_new_page(&mut self, padding: i32) {
-        let space_remaining = self.pages.last().remaining();
-        if padding > space_remaining.y {
-            self.pages.push(Stack::new(self.pages.last().size()));
-        }
-    }
 
     pub fn restore(&mut self, path: &Path) -> io::Result<()> {
         let save_data = fs::read(path)?;
@@ -461,11 +307,37 @@ impl Session {
         Ok(saves)
     }
 
+    pub fn maybe_new_page(&mut self, padding: i32) {
+        let space_remaining = self.pages.last().remaining();
+        if padding > space_remaining.y {
+            self.pages.push(Stack::new(self.pages.last().size()));
+        }
+    }
+
+    fn push_padding(&mut self, height: i32) {
+        let height = height.min(self.pages.last().remaining().y);
+        if height == 0 {
+            return;
+        }
+        self.pages.push_stack(Element::Break(height));
+    }
+
+    fn push_element(&mut self, element: Element) {
+        self.maybe_new_page(element.size().y);
+        if self.pages.last().is_empty() {
+            let upper = self.zvm.ui.upper_window();
+            if let Some(window) = Element::upper_window(&self.font.monospace, upper) {
+                self.pages.push_stack(window);
+            }
+        }
+        self.pages.push_stack(element);
+    }
+
     pub fn restore_menu(&mut self, saves: Vec<PathBuf>, bounds: Vector2<i32>, initial_run: bool) {
         let mut page = Paged::new(Stack::new(bounds));
 
         for widget in Text::wrap(
-            &self.font,
+            &self.font.roman,
             "Select a saved game to restore from the list below. (Your most recent saved game is listed first.)",
             LINE_LENGTH,
             LINE_HEIGHT,
@@ -490,14 +362,14 @@ impl Session {
             let slug = format!("{} - {}", &meta.location, &meta.score_and_turn);
 
             page.push_stack(
-                Element::file_display(&self.font, &slug, &text, Some(Msg::Restore(Some((path, meta)))))
+                Element::file_display(&self.font.roman, &slug, &text, Some(Msg::Restore(Some((path, meta)))))
             );
         }
 
         if initial_run {
             page.push_stack(Element::Break(LINE_HEIGHT));
             let widget = Text::layout(
-                &self.font,
+                &self.font.roman,
                 "Or tap here to start from the beginning.",
                 LINE_HEIGHT,
             ).on_touch(Some(Msg::Restore(None)));
@@ -516,11 +388,16 @@ impl Session {
 
         let mut first = true;
         for paragraph in paragraphs {
+
+            if paragraph.is_empty() {
+                continue;
+            }
+
             // Avoid adding padding if we're right after an input element, or at the beginning of a page.
             if !first {
                 self.maybe_new_page(LINE_HEIGHT);
                 if self.pages.last().len() != 0 {
-                    self.pages.push_stack(Element::Break(LINE_HEIGHT));
+                    self.push_element(Element::Break(LINE_HEIGHT));
                 }
             }
 
@@ -532,19 +409,19 @@ impl Session {
                 if let Some(title) = paragraph_iter.next() {
                     self.maybe_new_page(LINE_HEIGHT * 16);
 
-                    for widget in ui::Text::wrap(&self.font, title, self.pages.size().x, LINE_HEIGHT * 2, false) {
-                        self.pages.push_stack(Element::Line(true, widget));
+                    for widget in ui::Text::wrap(&self.font.roman, title, self.pages.size().x, LINE_HEIGHT * 2, false) {
+                        self.push_element(Element::Line(true, widget));
                     }
 
                     for line in paragraph_iter {
-                        let widget = Text::layout(&self.font, line, LINE_HEIGHT);
-                        self.pages.push_stack(Element::Line(true, widget));
+                        let widget = Text::layout(&self.font.roman, line, LINE_HEIGHT);
+                        self.push_element(Element::Line(true, widget));
                     }
                 }
             } else {
                 for line in paragraph.split("\n") {
-                    for widget in ui::Text::wrap(&self.font, line, self.pages.size().x, LINE_HEIGHT, true) {
-                        self.pages.push_stack(Element::Line(false, widget));
+                    for widget in ui::Text::wrap(&self.font.roman, line, self.pages.size().x, LINE_HEIGHT, true) {
+                        self.push_element(Element::Line(false, widget));
                     }
                 }
             }
@@ -555,22 +432,54 @@ impl Session {
 
     pub fn advance(&mut self) -> Step {
         let result = self.zvm.step();
+        self.zvm_state = result.clone();
 
         let mut buffer = String::new();
-        while let Ok(action) = self.actions.try_recv() {
+        let mut clear_screen = false;
+
+        for action in self.zvm.ui.drain_output() {
             match action {
-                VmOutput::Print(result) => {
-                    buffer.push_str(&result);
+                BaseOutput::Lower { style, content } => {
+                    buffer.push_str(&content);
+                }
+                BaseOutput::Upper { lines } => {
+                    // FIXME: this isn't good yet
+                }
+                BaseOutput::EraseLower => {
+                    clear_screen = true;
+                    buffer.clear()
                 }
             }
         }
 
+        if clear_screen {
+            if !self.pages.last().is_empty() && self.pages.last().remaining().y > LINE_HEIGHT * 2 {
+                self.push_padding(LINE_HEIGHT);
+                self.pages.push_stack(
+                    Element::Line(true, Text::layout(&self.font.roman, SECTION_BREAK, LINE_HEIGHT))
+                );
+            }
+            self.maybe_new_page(TEXT_AREA_HEIGHT);
+        }
+
         self.append_buffer(buffer);
+
+        if let Some(upper) = Element::upper_window(&self.font.monospace, self.zvm.ui.upper_window()) {
+            match self.pages.last_mut().first_mut() {
+                Some(e @ Element::UpperWindow(_)) if e.size() == upper.size() => {
+                    *e = upper;
+                }
+                _ => {
+                    self.maybe_new_page(TEXT_AREA_HEIGHT);
+                    self.pages.push_stack(upper);
+                }
+            }
+        }
 
         match result {
             Step::Save(data) => {
-                self.pages.push_stack(
-                    Element::Line(false, Text::layout(&self.font, "Saving game...", LINE_HEIGHT))
+                self.push_element(
+                    Element::Line(false, Text::layout(&self.font.roman, "Saving game...", LINE_HEIGHT))
                 );
 
                 let (place, score) = self.zvm.get_status();
@@ -587,14 +496,14 @@ impl Session {
                 let meta_path = save_path.with_extension("meta");
                 fs::write(&meta_path, meta_json).unwrap();
 
-                self.pages.push_stack(Element::Break(LINE_HEIGHT/2));
-                self.pages.push_stack(Element::file_display(
-                    &self.font,
+                self.push_element(Element::Break(LINE_HEIGHT/2));
+                self.push_element(Element::file_display(
+                    &self.font.roman,
                     &format!("{} - {}", &meta.location, &meta.score_and_turn),
                     save_path.to_string_lossy().borrow(),
                     None
                 ));
-                self.pages.push_stack(Element::Break(LINE_HEIGHT/2));
+                self.push_element(Element::Break(LINE_HEIGHT/2));
 
                 eprintln!("Game successfully saved!");
                 self.zvm.handle_save_result(true);
@@ -606,25 +515,37 @@ impl Session {
             _ => {
                 // Add a prompt
                 self.maybe_new_page(88);
-                let last_page = self.pages.len() - 1;
-                let next_element = self.pages.last().len();
 
                 let input_id = self.next_input;
                 self.next_input += 1;
                 self.active_input.set(input_id);
-                self.pages.push_stack(Element::Input {
+                self.push_element(Element::Input {
                     id: input_id,
                     active: self.active_input.clone(),
-                    prompt: ui::Text::layout(&self.font, "☞", LINE_HEIGHT)
-                        .on_touch(Some(Msg::Input { page: last_page, line: next_element, margin: true })),
-                    area: ui::InputArea::new(Vector2::new(600, 88))
-                        .on_ink(Some(Msg::Input { page: last_page, line: next_element, margin: false })),
+                    prompt: ui::Text::layout(&self.font.roman, "☞", LINE_HEIGHT),
+                    area: ui::InputArea::new(Vector2::new(600, 88)).on_ink(None),
                 });
+
+                let last_page = self.pages.len() - 1;
+                let next_element = self.pages.last().len() - 1;
+
+                if let Some(Element::Input { prompt, area, .. }) = self.pages.last_mut().last_mut() {
+                    prompt.on_touch = Some(Msg::Input { page: last_page, line: next_element, margin: true });
+                    *area = ui::InputArea::new(Vector2::new(600, 88)).on_ink(Some(Msg::Input { page: last_page, line: next_element, margin: false }))
+                }
 
                 result
             }
         }
     }
+}
+
+#[derive(Clone)]
+struct Fonts {
+    roman: Font<'static>,
+    italic: Font<'static>,
+    bold: Font<'static>,
+    monospace: Font<'static>,
 }
 
 enum GameState {
@@ -641,7 +562,7 @@ enum GameState {
 struct Game {
     bounds: BoundingBox,
     state: GameState,
-    font: Font<'static>,
+    fonts: Fonts,
     ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>,
     awaiting_ink: usize,
     root_dir: PathBuf,
@@ -684,12 +605,12 @@ impl Game {
             unimplemented!();
         }
 
-        let (vm_tx, vm_rx) = mpsc::channel();
-
-        let mut ui = RmUI::new();
+        let mut ui = BaseUI::new();
         let mut opts = Options::default();
 
-        let mut zvm = Zmachine::new(data, Box::new(ui), opts);
+        opts.dimensions.0 = 50;
+
+        let mut zvm = Zmachine::new(data, ui, opts);
 
         let dict = Dict(zvm.get_dictionary().drain(..).collect());
 
@@ -702,12 +623,12 @@ impl Game {
             fs::create_dir(&save_root)?;
         }
         let mut session = Session {
-            font: self.font.clone(),
+            font: self.fonts.clone(),
             zvm,
+            zvm_state: Step::Done,
             dict: Arc::new(dict),
             next_input: 0,
             active_input: Rc::new(Cell::new(usize::MAX)),
-            actions: vm_rx,
             pages,
             restore: None,
             save_root,
@@ -753,11 +674,11 @@ impl Game {
         games
     }
 
-    fn init(bounds: BoundingBox, font: Font<'static>, ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>, root_dir: PathBuf) -> Game {
+    fn init(bounds: BoundingBox, fonts: Fonts, ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>, root_dir: PathBuf) -> Game {
         Game {
             bounds,
-            state: GameState::Init { games: Game::game_page(&font, bounds.size(), &root_dir) },
-            font,
+            state: GameState::Init { games: Game::game_page(&fonts.roman, bounds.size(), &root_dir) },
+            fonts: fonts,
             ink_tx,
             awaiting_ink: 0,
             root_dir,
@@ -820,7 +741,18 @@ impl Game {
             }
             Msg::RecognizedText(n, text) => if let GameState::Playing { session }  = &mut self.state {
                 if n == self.awaiting_ink {
-                    session.zvm.handle_input(text);
+                    match session.zvm_state.clone() {
+                        Step::ReadChar => {
+                            let c = text.chars().next().unwrap_or('\n');
+                            session.zvm.handle_read_char(c as u8);
+                        }
+                        Step::ReadLine => {
+                            session.zvm.handle_input(text);
+                        }
+                        other => {
+                            unimplemented!("Got input in unexpected state: {:?}", other);
+                        }
+                    }
                     match session.advance() {
                         Step::Restore => {
                             // Start a new page unless the current page is empty
@@ -828,13 +760,13 @@ impl Game {
                             let saves = session.load_saves().unwrap();
                             if saves.is_empty() {
                                 // Nothing to restore to! Bail out to the top.
-                                self.state = GameState::Init { games: Game::game_page(&self.font, self.size(), &self.root_dir) };
+                                self.state = GameState::Init { games: Game::game_page(&self.fonts.roman, self.size(), &self.root_dir) };
                             } else {
                                 session.restore_menu(saves, text_area_shape, false);
                             }
                         }
                         Step::Done => {
-                            self.state = GameState::Init { games: Game::game_page(&self.font, self.size(), &self.root_dir) };
+                            self.state = GameState::Init { games: Game::game_page(&self.fonts.roman, self.size(), &self.root_dir) };
                         }
                         _ => {}
                     };
@@ -859,16 +791,16 @@ impl Game {
                             // Restoring in the middle of a session... add a visual break.
                             session.pages.push_stack(Element::Break(LINE_HEIGHT));
                             session.pages.push_stack(
-                            Element::Line(true, Text::layout(&self.font, SECTION_BREAK, LINE_HEIGHT))
+                            Element::Line(true, Text::layout(&self.fonts.roman, SECTION_BREAK, LINE_HEIGHT))
                             );
                             session.pages.push_stack(Element::Break(LINE_HEIGHT));
                         }
                         session.pages.push_stack(
-                        Element::Line(false, Text::layout(&self.font, "Restoring game...", LINE_HEIGHT))
+                        Element::Line(false, Text::layout(&self.fonts.roman, "Restoring game...", LINE_HEIGHT))
                         );
                         session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
                         session.pages.push_stack(Element::file_display(
-                            &self.font,
+                            &self.fonts.roman,
                             &format!("{} - {}", &meta.location, &meta.score_and_turn),
                             &path.to_string_lossy(),
                             None,
@@ -910,7 +842,7 @@ impl Widget for Game {
 
         let page_number = current_pages.current_index();
         let page_string = (current_pages.current_index() + 1).to_string();
-        let page_text = Text::layout(&self.font, &page_string, LINE_HEIGHT);
+        let page_text = Text::layout(&self.fonts.roman, &page_string, LINE_HEIGHT);
 
         let page_number_start = (DISPLAYWIDTH as i32 - page_text.size().x) / 2;
 
@@ -919,7 +851,7 @@ impl Widget for Game {
         let mut before = frame.split_off(Side::Left, page_number_start);
 
         if page_number > 0 {
-            let left_arrow = Text::layout(&self.font, "<", LINE_HEIGHT * 2 / 3);
+            let left_arrow = Text::layout(&self.fonts.roman, "<", LINE_HEIGHT * 2 / 3);
             before.render_placed(&left_arrow, 0.98, 0.5);
         } else {
             mem::drop(before);
@@ -927,7 +859,7 @@ impl Widget for Game {
 
         let mut after = frame.split_off(Side::Right, page_number_start);
         if page_number + 1 < current_pages.len() {
-            let left_arrow = Text::layout(&self.font, ">", LINE_HEIGHT * 2 / 3);
+            let left_arrow = Text::layout(&self.fonts.roman, ">", LINE_HEIGHT * 2 / 3);
             after.render_placed(&left_arrow, 0.02, 0.5)
         } else {
             mem::drop(after);
@@ -944,8 +876,13 @@ fn main() {
 
     let font_bytes =
         fs::read("/usr/share/fonts/ttf/ebgaramond/EBGaramond-VariableFont_wght.ttf").unwrap();
-
-    let font: Font<'static> = Font::from_bytes(font_bytes).unwrap();
+    
+    let fonts = Fonts {
+        roman: Font::from_bytes(include_bytes!("../../rm-fonts/static/EBGaramond-Regular.ttf").as_ref()).unwrap(),
+        italic: Font::from_bytes(include_bytes!("../../rm-fonts/static/EBGaramond-Italic.ttf").as_ref()).unwrap(),
+        bold: Font::from_bytes(include_bytes!("../../rm-fonts/static/EBGaramond-Bold.ttf").as_ref()).unwrap(),
+        monospace: Font::from_bytes(include_bytes!("../../rm-fonts/static/Inconsolata/Inconsolata-Regular.ttf").as_ref()).unwrap(),
+    };
 
     let mut app = armrest::app::App::new();
 
@@ -968,7 +905,7 @@ fn main() {
 
     let mut game = Game::init(
         page_bounds,
-        font,
+        fonts,
         ink_tx,
         root_dir,
     );

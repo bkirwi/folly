@@ -1524,7 +1524,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             let instr = self.decode_instruction(self.pc);
 
             if self.options.log_instructions {
-                write!(self.instr_log, "\n{}", &instr).unwrap();
+                eprintln!("{}", &instr);
             }
 
             match instr.opcode {
@@ -1619,7 +1619,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.pc = instr.next;
     }
 
-    pub fn handle_read_char(&mut self, input: char) {
+    pub fn handle_read_char(&mut self, input: u8) {
         let instr = self.paused_instr.take().expect(
             "Can't handle input, no paused instruction to resume",
         );

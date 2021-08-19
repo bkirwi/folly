@@ -1,10 +1,8 @@
-extern crate atty;
 extern crate base64;
 extern crate clap;
 extern crate rand;
 extern crate regex;
 extern crate serde_json;
-extern crate term_size;
 
 #[macro_use]
 extern crate lazy_static;
@@ -18,7 +16,7 @@ extern crate serde_derive;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
-use std::{process, io};
+use std::{process, io, mem};
 
 use clap::{App, Arg};
 use regex::Regex;
@@ -33,9 +31,11 @@ mod ui_terminal;
 mod zmachine;
 
 use crate::options::Options;
-use crate::traits::UI;
-use crate::ui_terminal::TerminalUI;
+use crate::traits::{UI, BaseUI, BaseOutput};
 use crate::zmachine::{Zmachine, Step};
+use termion::raw::IntoRawMode;
+use termion::input::TermRead;
+use termion::event::Key;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -98,7 +98,9 @@ fn main() {
         process::exit(1);
     }
 
-    let ui = *TerminalUI::new();
+    let mut ui = BaseUI::new();
+
+    let (term_width, term_height) = termion::terminal_size().unwrap();
 
     let mut opts = Options::default();
     opts.save_dir = path.parent().unwrap().to_string_lossy().into_owned();
@@ -106,13 +108,90 @@ fn main() {
 
     let rand32 = || rand::random();
     opts.rand_seed = [rand32(), rand32(), rand32(), rand32()];
+    opts.dimensions.0 = term_width;
+    opts.log_instructions = true;
+    // opts.dimensions.1 = term_height;
+    println!("{}", term_width);
 
-    ui.clear();
+    print!("{}", termion::clear::All);
 
     let mut zvm = Zmachine::new(data, ui, opts);
+    let mut x_position = 0;
 
     loop {
-        match zvm.step() {
+        let step = zvm.step();
+        for todo in zvm.ui.drain_output() {
+            match todo {
+                BaseOutput::Upper { lines } => {
+                    print!("{}", termion::cursor::Save);
+                    // eprintln!();
+                    for (line_no, chars) in lines.into_iter().enumerate() {
+                        print!("{}{}", termion::cursor::Goto(1, 1 + line_no as u16), termion::clear::CurrentLine);
+                        for (style, c) in chars.into_iter().take(term_width as usize) {
+                            if style.bold() {
+                                print!("{}", termion::style::Bold);
+                            }
+                            if style.italic() {
+                                print!("{}", termion::style::Italic);
+                            }
+                            if style.reverse_video() {
+                                print!("{}", termion::style::Invert);
+                            }
+                            print!("{}{}", c, termion::style::Reset);
+                        }
+                    }
+                    print!("{}", termion::cursor::Restore);
+                    io::stdout().flush().unwrap();
+                }
+                BaseOutput::Lower { style, content: text } => {
+                    // `.lines()` discards trailing \n and collapses multiple \n's between lines
+                    let lines = text.split('\n').collect::<Vec<_>>();
+                    let num_lines = lines.len();
+
+                    // implements some word-wrapping so words don't get split across lines
+                    lines.iter().enumerate().for_each(|(i, line)| {
+                        // skip if this line is just the result of a "\n"
+                        if !line.is_empty() {
+                            // `.split_whitespace` having similar issues as `.lines` above
+                            let words = line.split(' ').collect::<Vec<_>>();
+                            let num_words = words.len();
+
+                            // check that each word can fit on the line before printing it.
+                            // if its too big, bump to the next line and reset x-position
+                            words.iter().enumerate().for_each(|(i, word)| {
+                                x_position += word.len();
+
+                                if x_position > term_width as usize {
+                                    x_position = word.len();
+                                    println!();
+                                }
+
+                                print!("{}", word);
+
+                                // add spaces back in if we can (an not on the last element)
+                                if i < num_words - 1 && x_position < term_width as usize {
+                                    x_position += 1;
+                                    print!(" ");
+                                }
+                            });
+                        }
+
+                        // add newlines back that were removed from split
+                        if i < num_lines - 1 {
+                            println!();
+                            x_position = 0;
+                        }
+                    });
+
+                    io::stdout().flush().unwrap();
+                }
+
+                BaseOutput::EraseLower => {
+                    print!("{}", termion::clear::All);
+                }
+            }
+        }
+        match step {
             Step::Done => {
                 break;
             }
@@ -170,11 +249,8 @@ fn main() {
                 if let Ok(handle) = File::open(&path) {
                     file = handle;
                 } else {
-                    panic!("Can't open that file, try another?\n");
+                    panic!("Can't open that file!!!\n");
                 }
-
-                // save file name for next use
-                zvm.options.save_name = path.file_name().unwrap().to_string_lossy().into_owned();
 
                 // restore program counter position, stack frames, and dynamic memory
                 file.read_to_end(&mut data).expect(
@@ -183,12 +259,29 @@ fn main() {
                 zvm.restore(&base64::encode(&data));
             }
             Step::ReadChar => {
-                let mut input = String::new();
-                io::stdin()
-                    .read_line(&mut input)
-                    .expect("Error reading input");
-                let ch = input.chars().next().unwrap_or('\n');
-                zvm.handle_read_char(ch);
+                let stdout = io::stdout().into_raw_mode().unwrap();
+                let mut keys = io::stdin().keys();
+
+                // While we expect just a single char, this loops in case unexpected characters
+                // are encountered. (We ignore them.)
+                let zscii = loop {
+                    let key = keys.next().expect("Error reading input").unwrap();
+                    break match key {
+                        Key::Backspace => 8,
+                        Key::Delete => 8,
+                        Key::Esc => 27,
+                        Key::Up => 129,
+                        Key::Down => 130,
+                        Key::Left => 131,
+                        Key::Right => 132,
+                        Key::Char(c) => c as u8,
+                        _ => continue,
+                    };
+                };
+
+                zvm.handle_read_char(zscii);
+
+                mem::drop(stdout);
             }
             Step::ReadLine => {
                 let input = get_user_input();

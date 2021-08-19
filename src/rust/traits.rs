@@ -33,6 +33,7 @@ pub trait UI {
     fn message(&self, mtype: &str, msg: &str);
 }
 
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BaseOutput {
     Upper {
         lines: Vec<Vec<(TextStyle, char)>>
@@ -47,13 +48,13 @@ pub enum BaseOutput {
 pub struct BaseUI {
     current_window: Window,
     current_style: TextStyle,
-    upper_cursor: (u16, u16),
+    upper_cursor: (usize, usize),
     upper_lines: Vec<Vec<(TextStyle, char)>>,
     output: Vec<BaseOutput>,
 }
 
 impl BaseUI {
-    pub(crate) fn new() -> BaseUI {
+    pub fn new() -> BaseUI {
         BaseUI {
             current_window: Window::Lower,
             current_style: TextStyle::new(0),
@@ -63,8 +64,15 @@ impl BaseUI {
         }
     }
 
+    pub fn upper_window(&self) -> &Vec<Vec<(TextStyle, char)>> {
+        &self.upper_lines
+    }
+
     pub fn drain_output(&mut self) -> Vec<BaseOutput> {
-        // TODO: maybe there's something to do here?
+        if self.current_window == Window::Upper {
+            self.output.push(BaseOutput::Upper { lines: self.upper_lines.clone() })
+        }
+
         std::mem::take(&mut self.output)
     }
 }
@@ -88,20 +96,25 @@ impl UI for BaseUI {
                 }
             }
             Window::Upper => {
-                let line_number = self.upper_cursor.0 as usize;
-                let window_len = self.upper_lines.len();
-                if window_len <= line_number {
-                    self.split_window(self.upper_cursor.0 + 1);
-                }
-
-                let line = &mut self.upper_lines[line_number];
-                let mut index = self.upper_cursor.1 as usize;
-
                 for c in text.chars() {
-                    for i in line.len()..=index {
+                    let (line_number, column_number) = self.upper_cursor;
+
+                    if c == '\n' {
+                        self.upper_cursor = (line_number + 1, 0);
+                        continue;
+                    }
+
+                    let window_len = self.upper_lines.len();
+                    if window_len <= line_number {
+                        self.split_window(1 + line_number as u16);
+                    }
+                    let line = &mut self.upper_lines[line_number];
+                    // If the cursor is past the end of the line, pad it out with blanks.
+                    for _ in line.len()..=column_number {
                         line.push((TextStyle::new(0), ' '));
                     }
-                    line[index] = (self.current_style, c);
+                    line[column_number] = (self.current_style, c);
+                    self.upper_cursor.1 += 1
                 }
             }
         }
@@ -132,6 +145,9 @@ impl UI for BaseUI {
     }
 
     fn set_window(&mut self, window: Window) {
+        if self.current_window == window {
+            return;
+        }
         self.current_window = window;
 
         match window {
@@ -160,7 +176,10 @@ impl UI for BaseUI {
     fn set_cursor(&mut self, line: u16, column: u16) {
         if self.current_window == Window::Upper {
             // If this is out of bounds, we'll fix it in `print`.
-            self.upper_cursor = (line, column);
+            fn to_index(i: u16) -> usize {
+                i.saturating_sub(1) as usize
+            }
+            self.upper_cursor = (to_index(line), to_index(column));
         }
     }
 

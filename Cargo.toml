@@ -37,13 +37,11 @@ serde_json = "1.0.38"
 wasm-glue = "0.1.0"
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies]
-atty = "0.2.11"
 clap = "2.32.0"
 lazy_static = "1.2.0"
 regex = "1.1.0"
-term_size = "0.3.1"
+termion = "1.5.6"
 armrest = { path = "../armrest" }
 libremarkable = "0.4.3"
 rusttype = "0.8.2"
 chrono = "0.4.19"
-#radix_trie = "0.2.1"

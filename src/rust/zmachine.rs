@@ -23,6 +23,7 @@ use crate::buffer::Buffer;
 use crate::frame::Frame;
 use crate::quetzal::QuetzalSave;
 use crate::instruction::*;
+use std::cmp::Ordering;
 
 #[derive(Debug)]
 enum ZStringState {
@@ -129,7 +130,7 @@ pub enum Step {
     ReadLine,
 }
 
-pub struct Zmachine<ZUI=()> {
+pub struct Zmachine<ZUI> {
     pub ui: ZUI,
     pub options: Options,
     pub instr_log: String,
@@ -158,6 +159,7 @@ pub struct Zmachine<ZUI=()> {
     undos: Vec<(String, Vec<u8>)>,
     redos: Vec<(String, Vec<u8>)>,
     rng: rand::XorShiftRng,
+    memory_output: Vec<(usize, usize)>,
 }
 
 impl<ZUI> Zmachine<ZUI> {
@@ -204,6 +206,7 @@ impl<ZUI> Zmachine<ZUI> {
             rng: rand::SeedableRng::from_seed(options.rand_seed.clone()),
             memory,
             options,
+            memory_output: vec![],
         };
 
         // Provide the game some information about the interpreter it's running in.
@@ -1376,13 +1379,12 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_239, &[line, column]) => self.do_set_cursor(line, column),
             (VAR_241, &[style]) => self.do_set_text_style(style),
             (VAR_242, _) => (), // set buffering, but does it matter in this day and age?
+            (VAR_243, &[number, ..]) => self.do_output_stream(number, &args[1..]),
+            (VAR_244, &[number]) => self.do_input_stream(number),
+            (VAR_245, _) => (), // sound effects not supported!
             (VAR_249, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn
             (VAR_250, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn2
             (VAR_251, &[text_addr, parse_addr]) => self.do_tokenise(text_addr, parse_addr),
-
-            // special cases to no-op: (input/output streams & sound effects)
-            // (VAR_243, _) | (VAR_244, _) => ,
-            (VAR_245, _) => (), // sound effects not supported!
 
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",
@@ -1666,6 +1668,20 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let state = base64::decode(data).unwrap();
         self.restore_state(state.as_slice());
     }
+
+    fn print(&mut self, text: &str) {
+        match self.memory_output.last_mut() {
+            None => {
+                self.ui.print(text);
+            }
+            Some((_, end)) => {
+                // FIXME: real ZSCII conversion!
+                let bytes = text.as_bytes();
+                self.memory.write(*end, bytes);
+                *end += bytes.len();
+            }
+        }
+    }
 }
 
 // Instruction handlers
@@ -1849,7 +1865,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // OP1_135
     fn do_print_addr(&mut self, addr: u16) {
         let zstring = self.read_zstring(addr as usize);
-        self.ui.print(&zstring);
+        self.print(&zstring);
     }
 
     // OP1_136 : call_1s
@@ -1883,7 +1899,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
     fn do_print_paddr(&mut self, addr: u16) {
         let paddr = self.unpack_print_paddr(addr);
         let zstring = self.read_zstring(paddr);
-        self.ui.print(&zstring);
+        self.print(&zstring);
     }
 
     // OP1_142
@@ -1909,14 +1925,14 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // OP0_178
     fn do_print(&mut self, instr: &Instruction) {
         let text = instr.text.as_ref().expect("Can't print with no text!");
-        self.ui.print(text);
+        self.print(text);
     }
 
     // OP0_179
     fn do_print_ret(&mut self, instr: &Instruction) {
         let text = instr.text.as_ref().expect("Can't print with no text!");
-        self.ui.print(text);
-        self.ui.print("\n");
+        self.print(text);
+        self.print("\n");
         self.return_from_routine(1);
     }
 
@@ -1966,7 +1982,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     // OP0_187
     fn do_newline(&mut self) {
-        self.ui.print("\n");
+        self.print("\n");
     }
 
     // OP0_188
@@ -2069,12 +2085,12 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     // VAR_229
     fn do_print_char(&mut self, chr: u16) {
-        self.ui.print(&(chr as u8 as char).to_string());
+        self.print(&(chr as u8 as char).to_string());
     }
 
     // VAR_230
     fn do_print_num(&mut self, signed: u16) {
-        self.ui.print(&(signed as i16).to_string());
+        self.print(&(signed as i16).to_string());
     }
 
     // VAR_231
@@ -2140,8 +2156,59 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.ui.set_cursor(line, column);
     }
 
+    // VAR_241
     fn do_set_text_style(&mut self, style: u16) {
         self.ui.set_text_style(TextStyle::new(style));
+    }
+
+    // VAR_243
+    fn do_output_stream(&mut self, number: u16, args: &[u16]) {
+        let number = number as i16;
+        let (enabled, stream) = match number.cmp(&0) {
+            Ordering::Less => (false, -number),
+            Ordering::Equal => return,
+            Ordering::Greater => (true, number),
+        };
+
+        match stream {
+            1 => {
+                // Should probably track this?
+            }
+            2 => {
+                // We don't keep a transcript, so, ignore this.
+            },
+            3 => {
+                if enabled {
+                    let table_addr = args[0] as usize;
+                    self.memory_output.push((table_addr, table_addr + 2));
+                } else {
+                    if let Some((start, end)) = self.memory_output.pop() {
+                        self.memory.write_word(start, (end - start - 2) as u16);
+                    }
+                }
+            },
+            4 => {
+                // This is another type of transcript; ignore it too.
+            },
+            _ => panic!("Illegal output stream number! {}", number),
+        }
+    }
+
+    // VAR_244
+    fn do_input_stream(&mut self, number: u16) {
+        match number {
+            1 => {}
+            2 => {
+                unimplemented!("Transcript not implemented!")
+            }
+            3 => {
+                unimplemented!("In-memory input not implemented!")
+            }
+            4 => {
+                unimplemented!("Extra transcript not implemented!")
+            }
+            _ => panic!("Illegal output stream number! {}", number),
+        }
     }
 
     // VAR_248 do_not() (same as OP1_143)

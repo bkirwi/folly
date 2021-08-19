@@ -1911,18 +1911,20 @@ impl<ZUI: UI> Zmachine<ZUI> {
     }
 
     fn process_restore_result(&mut self) {
-        // In versions 1-3 the PC points to the BRANCH data of the save instruction.
-        // Saves branch if successful, so follow the branch if the topmost bit
-        // (condition bit) of the branch data is set. Otherwise go to the next
-        // instruction (the next byte address).
-        //
-        // In versions 4+ the PC points to the number that the save result should
-        // be saved in. (Saves store the value 2 when successful)
-        //
-        // (note: this logic only applies to the save/restore instructions)
-        let instruction = self.decode_instruction(self.pc - 1);
-        // assert_eq!(instruction.opcode, Opcode::OP0_181, "Expect to restore from a save instruction!");
-        self.process_result(&instruction, 2);
+        // On Versions 3 and 4, attempts to save the game (all questions about filenames are asked
+        // by interpreters) and branches if successful. From Version 5 it is a store rather than a
+        // branch instruction; the store value is 0 for failure, 1 for "save succeeded" and 2 for
+        // "the game is being restored and is resuming execution again from here, the point where it was saved".
+        if self.version <= 4 {
+            let instruction = self.decode_instruction(self.pc - 1);
+            self.process_result(&instruction, 2);
+        } else {
+            // We don't know where the instruction starts... it might be the extended version.
+            // But at 5 and above save is always a store, so just implement that directly.
+            let index = self.memory.read_byte(self.pc);
+            self.write_variable(index, 2);
+            self.pc += 1;
+        }
     }
 
     // OP0_183

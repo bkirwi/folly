@@ -1676,9 +1676,14 @@ impl<ZUI: UI> Zmachine<ZUI> {
             }
             Some((_, end)) => {
                 // FIXME: real ZSCII conversion!
-                let bytes = text.as_bytes();
-                self.memory.write(*end, bytes);
-                *end += bytes.len();
+                let mut writer = self.memory.get_writer(*end);
+                for c in text.chars() {
+                    if c == '\0' || !c.is_ascii() {
+                        continue;
+                    }
+                    writer.byte(c as u8);
+                }
+                *end = writer.position();
             }
         }
     }

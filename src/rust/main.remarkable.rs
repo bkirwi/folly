@@ -314,9 +314,14 @@ impl Session {
         }
     }
 
-    fn push_padding(&mut self, height: i32) {
-        let height = height.min(self.pages.last().remaining().y);
-        if height == 0 {
+    fn push_advance_space(&mut self) {
+        let height = LINE_HEIGHT.min(self.pages.last().remaining().y);
+        let pad_previous_element = match self.pages.last().last() {
+            Some(Element::Line(..)) => true,
+            Some(Element::File {..}) => true,
+            _ => false,
+        };
+        if height == 0 || !pad_previous_element {
             return;
         }
         self.pages.push_stack(Element::Break(height));
@@ -388,23 +393,18 @@ impl Session {
 
         let mut first = true;
         for paragraph in paragraphs {
-
-            if paragraph.is_empty() {
+            if paragraph.chars().all(|c| c.is_ascii_whitespace()) {
                 continue;
             }
 
-            // Avoid adding padding if we're right after an input element, or at the beginning of a page.
             if !first {
-                self.maybe_new_page(LINE_HEIGHT);
-                if self.pages.last().len() != 0 {
-                    self.push_element(Element::Break(LINE_HEIGHT));
-                }
+                self.push_advance_space();
             }
 
             // TODO: a less embarassing heuristic for the title paragraph
             if paragraph.contains("Serial number") && (paragraph.contains("Infocom") || paragraph.contains("Inform")) {
                 // We think this is a title slug!
-                let mut paragraph_iter =paragraph.split("\n");
+                let mut paragraph_iter = paragraph.split("\n");
 
                 if let Some(title) = paragraph_iter.next() {
                     self.maybe_new_page(LINE_HEIGHT * 16);
@@ -420,6 +420,9 @@ impl Session {
                 }
             } else {
                 for line in paragraph.split("\n") {
+                    if line.chars().all(|c| c.is_ascii_whitespace()) {
+                        continue;
+                    }
                     for widget in ui::Text::wrap(&self.font.roman, line, self.pages.size().x, LINE_HEIGHT, true) {
                         self.push_element(Element::Line(false, widget));
                     }
@@ -454,7 +457,7 @@ impl Session {
 
         if clear_screen {
             if !self.pages.last().is_empty() && self.pages.last().remaining().y > LINE_HEIGHT * 2 {
-                self.push_padding(LINE_HEIGHT);
+                self.push_advance_space();
                 self.pages.push_stack(
                     Element::Line(true, Text::layout(&self.font.roman, SECTION_BREAK, LINE_HEIGHT))
                 );
@@ -496,6 +499,7 @@ impl Session {
                 let meta_path = save_path.with_extension("meta");
                 fs::write(&meta_path, meta_json).unwrap();
 
+                self.maybe_new_page(LINE_HEIGHT * 3);
                 self.push_element(Element::Break(LINE_HEIGHT/2));
                 self.push_element(Element::file_display(
                     &self.font.roman,

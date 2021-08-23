@@ -159,6 +159,7 @@ pub struct Zmachine<ZUI> {
     undos: Vec<(String, Vec<u8>)>,
     redos: Vec<(String, Vec<u8>)>,
     rng: rand::XorShiftRng,
+    disable_output: bool,
     memory_output: Vec<(usize, usize)>,
 }
 
@@ -206,6 +207,7 @@ impl<ZUI> Zmachine<ZUI> {
             rng: rand::SeedableRng::from_seed(options.rand_seed.clone()),
             memory,
             options,
+            disable_output: false,
             memory_output: vec![],
         };
 
@@ -1672,7 +1674,9 @@ impl<ZUI: UI> Zmachine<ZUI> {
     fn print(&mut self, text: &str) {
         match self.memory_output.last_mut() {
             None => {
-                self.ui.print(text);
+                if !self.disable_output {
+                    self.ui.print(text);
+                }
             }
             Some((_, end)) => {
                 // FIXME: real ZSCII conversion!
@@ -2177,7 +2181,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
         match stream {
             1 => {
-                // Should probably track this?
+                self.disable_output = !enabled;
             }
             2 => {
                 // We don't keep a transcript, so, ignore this.

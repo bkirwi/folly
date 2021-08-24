@@ -50,6 +50,7 @@ pub struct BaseUI {
     current_style: TextStyle,
     upper_cursor: (usize, usize),
     upper_lines: Vec<Vec<(TextStyle, char)>>,
+    requested_height: usize, // https://eblong.com/zarf/glk/quote-box.html
     output: Vec<BaseOutput>,
 }
 
@@ -60,8 +61,13 @@ impl BaseUI {
             current_style: TextStyle::new(0),
             upper_cursor: (0, 0),
             upper_lines: vec![],
+            requested_height: 0,
             output: vec![],
         }
+    }
+
+    pub fn resolve_upper_height(&mut self) {
+        self.upper_lines.truncate(self.requested_height);
     }
 
     pub fn upper_window(&self) -> &Vec<Vec<(TextStyle, char)>> {
@@ -96,6 +102,7 @@ impl UI for BaseUI {
                 }
             }
             Window::Upper => {
+                self.resolve_upper_height();
                 for c in text.chars() {
                     let (line_number, column_number) = self.upper_cursor;
 
@@ -134,9 +141,9 @@ impl UI for BaseUI {
     fn split_window(&mut self, lines: u16) {
         let current_lines = self.upper_lines.len();
         let requested_lines = lines as usize;
+        self.requested_height = requested_lines;
         if current_lines > requested_lines {
             self.output.push(BaseOutput::Upper { lines: self.upper_lines.clone() });
-            self.upper_lines.truncate(requested_lines);
         } else if current_lines < requested_lines {
             for _ in current_lines..requested_lines {
                 self.upper_lines.push(vec![]);

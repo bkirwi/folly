@@ -49,7 +49,7 @@ const TOP_MARGIN: i32 = 200;
 const LINE_HEIGHT: i32 = 44;
 const LINE_LENGTH: i32 = 1000;
 const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
-const CHARS_PER_LINE: usize = 50;
+const CHARS_PER_LINE: usize = 60;
 
 const SECTION_BREAK: &str = "* * *";
 
@@ -402,7 +402,9 @@ impl Session {
             }
 
             // TODO: a less embarassing heuristic for the title paragraph
-            if paragraph.contains("Serial number") && (paragraph.contains("Infocom") || paragraph.contains("Inform")) {
+            if paragraph.contains("Serial number") &&
+                (paragraph.contains("Infocom") || paragraph.contains("Inform")) &&
+                paragraph.split('\n').count() > 1 {
                 // We think this is a title slug!
                 let mut paragraph_iter = paragraph.split("\n");
 
@@ -434,6 +436,9 @@ impl Session {
     }
 
     pub fn advance(&mut self) -> Step {
+        // if the upper window is displaying some big quote box, collapse it down.
+        self.zvm.ui.resolve_upper_height();
+
         let result = self.zvm.step();
         self.zvm_state = result.clone();
 
@@ -610,13 +615,13 @@ impl Game {
         }
 
         let mut ui = BaseUI::new();
-        let mut opts = Options::default();
 
-        opts.dimensions.0 = 50;
+        let mut opts = Options::default();
+        opts.dimensions.0 = CHARS_PER_LINE as u16;
 
         let mut zvm = Zmachine::new(data, ui, opts);
 
-        let dict = Dict(zvm.get_dictionary().drain(..).collect());
+        let dict = Dict(zvm.get_dictionary().into_iter().collect());
 
         let mut pages = Paged::new(Stack::new(self.bounds.size()));
 

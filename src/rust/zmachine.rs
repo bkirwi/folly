@@ -25,6 +25,14 @@ use crate::quetzal::QuetzalSave;
 use crate::instruction::*;
 use std::cmp::Ordering;
 
+const DEFAULT_UNICODE_TABLE: &[char] = &[
+    'ä', 'ö', 'ü', 'Ä', 'Ö', 'Ü', 'ß', '»', '«', 'ë', 'ï', 'ÿ', 'Ë', 'Ï', 'á', 'é',
+    'í', 'ó', 'ú', 'ý', 'Á', 'É', 'Í', 'Ó', 'Ú', 'Ý', 'à', 'è', 'ì', 'ò', 'ù', 'À',
+    'È', 'Ì', 'Ò', 'Ù', 'â', 'ê', 'î', 'ô', 'û', 'Â', 'Ê', 'Î', 'Ô', 'Û', 'å', 'Å',
+    'ø', 'Ø', 'ã', 'ñ', 'õ', 'Ã', 'Ñ', 'Õ', 'æ', 'Æ', 'ç', 'Ç', 'þ', 'ð', 'Þ', 'Ð',
+    '£', 'œ', 'Œ', '¡', '¿'
+];
+
 #[derive(Debug)]
 enum ZStringState {
     Alphabet(usize),
@@ -212,7 +220,7 @@ impl<ZUI> Zmachine<ZUI> {
         };
 
         // Provide the game some information about the interpreter it's running in.
-        if version >= 5 {
+        if version >= 4 {
             let (width, height) = zvm.options.dimensions;
             // yes, the order switches between the two!
             zvm.memory.write_byte(0x20, height as u8);
@@ -1315,10 +1323,13 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (OP1_132, &[addr]) => Some(self.do_get_prop_len(addr)),
             (OP1_142, &[var]) => Some(self.do_load(var)),
             (OP1_143, &[value]) if self.version <= 4 => Some(self.do_not(value)),
+            (OP0_185, _) if self.version >= 5 => Some(self.do_catch()),
             (OP0_189, &[]) => Some(self.do_verify()),
             (OP0_191, &[]) => Some(1), // piracy
             (VAR_231, &[range]) => Some(self.do_random(range)),
             (VAR_233, &[var]) if self.version == 6 => Some(self.do_pull(var)),
+            (VAR_247, &[x, table, len, ..]) =>
+                Some(self.do_scan_table(x, table, len, args.get(3).copied())),
             (VAR_248, &[val]) if self.version >= 5 => Some(self.do_not(val)),
             (VAR_255, &[num]) => Some(self.do_check_arg_count(num)),
             (EXT_1002, &[num, places]) => Some(self.do_log_shift(num, places)),
@@ -1343,6 +1354,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (OP2_14, &[obj, dest]) => self.do_insert_obj(obj, dest),
             (OP2_25, &[addr, arg]) => self.do_call(instr, addr, &[arg]), // call_2s
             (OP2_26, &[addr, arg]) => self.do_call(instr, addr, &[arg]), // call_2n
+            (OP2_28, &[value, frame]) => self.do_throw(value, frame),
             (OP1_133, &[var]) => self.do_inc(var),
             (OP1_134, &[var]) => self.do_dec(var),
             (OP1_135, &[addr]) => self.do_print_addr(addr),
@@ -1377,6 +1389,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_235, &[window]) => self.do_set_window(window),
             (VAR_236, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vs2
             (VAR_237, &[window]) => self.do_erase_window(window),
+            // (VAR_238, _) => self.do_erase_line(), TODO
             (VAR_239, &[_]) => (), // this is only specified for v6, but some v5/v8 games have it
             (VAR_239, &[line, column]) => self.do_set_cursor(line, column),
             (VAR_241, &[style]) => self.do_set_text_style(style),
@@ -1387,6 +1400,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_249, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn
             (VAR_250, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn2
             (VAR_251, &[text_addr, parse_addr]) => self.do_tokenise(text_addr, parse_addr),
+            (VAR_253, &[first, second, size]) => self.do_copy_table(first, second, size),
+            (VAR_254, _) => (),
 
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",
@@ -1537,8 +1552,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
                     let pc = instr.next - 1;
                     let state = self.make_save_state(pc);
 
-                    let (location, _) = self.get_status();
-                    self.current_state = Some((location, state.clone()));
+                    // let (location, _) = self.get_status();
+                    // self.current_state = Some((location, state.clone()));
                     self.paused_instr = Some(instr);
 
                     return Step::Save(state);
@@ -1567,8 +1582,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
                     self.update_status_bar();
 
                     // web ui saves current state here BEFORE processing user input
-                    let (location, score) = self.get_status();
-                    self.current_state = Some((location, state));
+                    // let (location, score) = self.get_status();
+                    // self.current_state = Some((location, state));
                     self.paused_instr = Some(instr);
 
                     return Step::ReadLine;
@@ -1577,8 +1592,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 Opcode::VAR_246 => {
                     let state = self.make_save_state(self.pc);
 
-                    let (location, _) = self.get_status();
-                    self.current_state = Some((location, state));
+                    // let (location, _) = self.get_status();
+                    // self.current_state = Some((location, state));
                     self.paused_instr = Some(instr);
 
                     return Step::ReadChar;
@@ -1679,13 +1694,22 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 }
             }
             Some((_, end)) => {
-                // FIXME: real ZSCII conversion!
                 let mut writer = self.memory.get_writer(*end);
                 for c in text.chars() {
-                    if c == '\0' || !c.is_ascii() {
+                    if c == '\0' {
                         continue;
                     }
-                    writer.byte(c as u8);
+
+                    let b = if c.is_ascii() {
+                        c as u8
+                    } else {
+                        let position = DEFAULT_UNICODE_TABLE.iter().position(|c0| *c0 == c);
+                        match position {
+                            None => continue,
+                            Some(i) => 155 + i as u8,
+                        }
+                    };
+                    writer.byte(b);
                 }
                 *end = writer.position();
             }
@@ -1828,6 +1852,12 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // OP2_24
     fn do_mod(&self, a: u16, b: u16) -> u16 {
         (a as i16 % b as i16) as u16
+    }
+
+    // OP2_28
+    fn do_throw(&mut self, value: u16, stack_frame: u16) {
+        self.frames.truncate(stack_frame as usize);
+        self.return_from_routine(value);
     }
 
     // OP1_128
@@ -1989,6 +2019,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.stack_pop();
     }
 
+    fn do_catch(&mut self) -> u16 {
+        self.frames.len() as u16
+    }
+
     // OP0_187
     fn do_newline(&mut self) {
         self.print("\n");
@@ -2094,7 +2128,15 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     // VAR_229
     fn do_print_char(&mut self, chr: u16) {
-        self.print(&(chr as u8 as char).to_string());
+        let code = chr as u8;
+        let ch = if code >= 155 && code <= 223 {
+            let ch = DEFAULT_UNICODE_TABLE[(code - 155) as usize];
+            dbg!(ch);
+            ch
+        } else {
+            code as char
+        };
+        self.print(&ch.to_string());
     }
 
     // VAR_230
@@ -2146,14 +2188,14 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     // VAR_237
     fn do_erase_window(&mut self, window: u16) {
-        match window {
+        match window as i16 {
             0 => { self.ui.erase_window(Window::Lower); }
             1 => { self.ui.erase_window(Window::Upper); }
-            u16::MAX => {
+            -1 => {
                 self.ui.split_window(0);
                 self.ui.erase_window(Window::Lower);
             }
-            x if x == u16::MAX - 1 => {
+            -2 => {
                 self.ui.erase_window(Window::Lower);
                 self.ui.erase_window(Window::Upper);
             }
@@ -2220,6 +2262,36 @@ impl<ZUI: UI> Zmachine<ZUI> {
         }
     }
 
+    // VAR_247
+    fn do_scan_table(&mut self, x: u16, table: u16, mut len: u16, form: Option<u16>) -> u16 {
+        let table = table as usize;
+        let len = len as usize;
+
+        let (match_words, stride) = match form {
+            None => (true, 2),
+            Some(x) => {
+                let match_words = x & 0b10000000 != 0;
+                let stride = (x & 0b01111111) as usize;
+                (match_words, stride)
+            }
+        };
+
+        for i in 0..len {
+            let offset = table + i * stride;
+            let field = if match_words {
+                self.memory.read_word(offset)
+            } else {
+                self.memory.read_byte(offset) as u16
+            };
+
+            if x == field {
+                return offset as u16;
+            }
+        }
+
+        0
+    }
+
     // VAR_248 do_not() (same as OP1_143)
 
     // VAR_251
@@ -2231,6 +2303,40 @@ impl<ZUI: UI> Zmachine<ZUI> {
         // TODO: not really utf8 of course!
         let text = str::from_utf8(string).expect("Invalid utf8!!").to_string();
         self.tokenise(&text, parse_addr as usize);
+    }
+
+    fn do_copy_table(&mut self, first: u16, second: u16, size: u16) {
+        let size = size as i16;
+        let force_forward = size < 0;
+        let count = size.abs() as usize;
+        let first = first as usize;
+        let second = second as usize;
+
+        if second == 0 {
+            let mut writer = self.memory.get_writer(first);
+            for _ in 0..count {
+                writer.byte(0);
+            }
+            return;
+        }
+
+        let is_forward = if force_forward {
+            true
+        } else {
+            first > second
+        };
+
+        dbg!(first, second, size, force_forward, is_forward, count);
+
+        if is_forward {
+            for i in 0..count {
+                self.memory.write_byte(second + i, self.memory.read_byte(first + i));
+            }
+        } else {
+            for i in (0..count).rev() {
+                self.memory.write_byte(second + i, self.memory.read_byte(first + i));
+            }
+        };
     }
 
     // VAR_255

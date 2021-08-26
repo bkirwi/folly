@@ -123,25 +123,6 @@ fn main() {
         for todo in zvm.ui.drain_output() {
             match todo {
                 BaseOutput::Upper { lines } => {
-                    print!("{}", termion::cursor::Save);
-                    // eprintln!();
-                    for (line_no, chars) in lines.into_iter().enumerate() {
-                        print!("{}{}", termion::cursor::Goto(1, 1 + line_no as u16), termion::clear::CurrentLine);
-                        for (style, c) in chars.into_iter().take(term_width as usize) {
-                            if style.bold() {
-                                print!("{}", termion::style::Bold);
-                            }
-                            if style.italic() {
-                                print!("{}", termion::style::Italic);
-                            }
-                            if style.reverse_video() {
-                                print!("{}", termion::style::Invert);
-                            }
-                            print!("{}{}", c, termion::style::Reset);
-                        }
-                    }
-                    print!("{}", termion::cursor::Restore);
-                    io::stdout().flush().unwrap();
                 }
                 BaseOutput::Lower { style, content: text } => {
                     // `.lines()` discards trailing \n and collapses multiple \n's between lines
@@ -191,6 +172,27 @@ fn main() {
                 }
             }
         }
+
+        print!("{}", termion::cursor::Save);
+        // eprintln!();
+        for (line_no, chars) in zvm.ui.upper_window().clone().into_iter().enumerate() {
+            print!("{}{}", termion::cursor::Goto(1, 1 + line_no as u16), termion::clear::CurrentLine);
+            for (style, c) in chars.into_iter().take(term_width as usize) {
+                if style.bold() {
+                    print!("{}", termion::style::Bold);
+                }
+                if style.italic() {
+                    print!("{}", termion::style::Italic);
+                }
+                if style.reverse_video() {
+                    print!("{}", termion::style::Invert);
+                }
+                print!("{}{}", c, termion::style::Reset);
+            }
+        }
+        print!("{}", termion::cursor::Restore);
+        io::stdout().flush().unwrap();
+
         match step {
             Step::Done => {
                 break;

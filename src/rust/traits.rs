@@ -139,16 +139,17 @@ impl UI for BaseUI {
     }
 
     fn split_window(&mut self, lines: u16) {
-        let current_lines = self.upper_lines.len();
+        let current_lines = self.requested_height;
         let requested_lines = lines as usize;
-        self.requested_height = requested_lines;
         if current_lines > requested_lines {
             self.output.push(BaseOutput::Upper { lines: self.upper_lines.clone() });
         } else if current_lines < requested_lines {
+            self.resolve_upper_height();
             for _ in current_lines..requested_lines {
                 self.upper_lines.push(vec![]);
             }
         }
+        self.requested_height = requested_lines;
     }
 
     fn set_window(&mut self, window: Window) {

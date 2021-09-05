@@ -120,57 +120,51 @@ fn main() {
 
     loop {
         let step = zvm.step();
-        for todo in zvm.ui.drain_output() {
-            match todo {
-                BaseOutput::Upper { lines } => {
-                }
-                BaseOutput::Lower { style, content: text } => {
-                    // `.lines()` discards trailing \n and collapses multiple \n's between lines
-                    let lines = text.split('\n').collect::<Vec<_>>();
-                    let num_lines = lines.len();
 
-                    // implements some word-wrapping so words don't get split across lines
-                    lines.iter().enumerate().for_each(|(i, line)| {
-                        // skip if this line is just the result of a "\n"
-                        if !line.is_empty() {
-                            // `.split_whitespace` having similar issues as `.lines` above
-                            let words = line.split(' ').collect::<Vec<_>>();
-                            let num_words = words.len();
+        if zvm.ui.is_cleared() {
+            print!("{}", termion::clear::All);
+        }
+        for BaseOutput{ style, content: text } in zvm.ui.drain_output() {
+            // `.lines()` discards trailing \n and collapses multiple \n's between lines
+            let lines = text.split('\n').collect::<Vec<_>>();
+            let num_lines = lines.len();
 
-                            // check that each word can fit on the line before printing it.
-                            // if its too big, bump to the next line and reset x-position
-                            words.iter().enumerate().for_each(|(i, word)| {
-                                x_position += word.len();
+            // implements some word-wrapping so words don't get split across lines
+            lines.iter().enumerate().for_each(|(i, line)| {
+                // skip if this line is just the result of a "\n"
+                if !line.is_empty() {
+                    // `.split_whitespace` having similar issues as `.lines` above
+                    let words = line.split(' ').collect::<Vec<_>>();
+                    let num_words = words.len();
 
-                                if x_position > term_width as usize {
-                                    x_position = word.len();
-                                    println!();
-                                }
+                    // check that each word can fit on the line before printing it.
+                    // if its too big, bump to the next line and reset x-position
+                    words.iter().enumerate().for_each(|(i, word)| {
+                        x_position += word.len();
 
-                                print!("{}", word);
-
-                                // add spaces back in if we can (an not on the last element)
-                                if i < num_words - 1 && x_position < term_width as usize {
-                                    x_position += 1;
-                                    print!(" ");
-                                }
-                            });
+                        if x_position > term_width as usize {
+                            x_position = word.len();
+                            println!();
                         }
 
-                        // add newlines back that were removed from split
-                        if i < num_lines - 1 {
-                            println!();
-                            x_position = 0;
+                        print!("{}", word);
+
+                        // add spaces back in if we can (an not on the last element)
+                        if i < num_words - 1 && x_position < term_width as usize {
+                            x_position += 1;
+                            print!(" ");
                         }
                     });
-
-                    io::stdout().flush().unwrap();
                 }
 
-                BaseOutput::EraseLower => {
-                    print!("{}", termion::clear::All);
+                // add newlines back that were removed from split
+                if i < num_lines - 1 {
+                    println!();
+                    x_position = 0;
                 }
-            }
+            });
+
+            io::stdout().flush().unwrap();
         }
 
         print!("{}", termion::cursor::Save);
@@ -239,14 +233,6 @@ fn main() {
                 let mut path = PathBuf::from(&zvm.options.save_dir);
                 let mut data = Vec::new();
                 let mut file;
-
-                match input.to_lowercase().as_ref() {
-                    "" | "yes" | "y" => path.push(&zvm.options.save_name),
-                    "no" | "n" | "cancel" => {
-                        panic!("ugh");
-                    }
-                    _ => path.push(input),
-                }
 
                 if let Ok(handle) = File::open(&path) {
                     file = handle;

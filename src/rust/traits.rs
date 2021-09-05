@@ -16,11 +16,17 @@ impl TextStyle {
     pub fn fixed_pitch(self) -> bool { self.0 & 0b1000 != 0 }
 }
 
+impl Default for TextStyle {
+    fn default() -> Self {
+        TextStyle(0)
+    }
+}
+
 pub trait UI {
     fn print(&mut self, text: &str);
     fn debug(&mut self, text: &str);
     fn print_object(&mut self, object: &str);
-    fn set_status_bar(&self, left: &str, right: &str);
+    fn set_status_bar(&mut self, left: &str, right: &str);
 
     fn split_window(&mut self, _lines: u16) {}
     fn set_window(&mut self, _window: Window) {}
@@ -34,15 +40,9 @@ pub trait UI {
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
-pub enum BaseOutput {
-    Upper {
-        lines: Vec<Vec<(TextStyle, char)>>
-    },
-    Lower {
-        style: TextStyle,
-        content: String,
-    },
-    EraseLower,
+pub struct BaseOutput {
+    pub style: TextStyle,
+    pub content: String,
 }
 
 pub struct BaseUI {
@@ -51,7 +51,9 @@ pub struct BaseUI {
     upper_cursor: (usize, usize),
     upper_lines: Vec<Vec<(TextStyle, char)>>,
     requested_height: usize, // https://eblong.com/zarf/glk/quote-box.html
+    cleared: bool,
     output: Vec<BaseOutput>,
+    status_line: Option<(String, String)>,
 }
 
 impl BaseUI {
@@ -62,7 +64,20 @@ impl BaseUI {
             upper_cursor: (0, 0),
             upper_lines: vec![],
             requested_height: 0,
+            cleared: true,
             output: vec![],
+            status_line: None,
+        }
+    }
+
+    pub fn is_cleared(&self) -> bool {
+        self.cleared
+    }
+
+    pub fn status_line(&self) -> Option<(&str, &str)> {
+        match &self.status_line {
+            Some((l, r)) => Some((l.as_str(), r.as_str())),
+            None => None,
         }
     }
 
@@ -74,11 +89,12 @@ impl BaseUI {
         &self.upper_lines
     }
 
-    pub fn drain_output(&mut self) -> Vec<BaseOutput> {
-        if self.current_window == Window::Upper {
-            self.output.push(BaseOutput::Upper { lines: self.upper_lines.clone() })
-        }
+    pub fn uppler_lines(&self) -> impl Iterator<Item=&[(TextStyle, char)]> {
+        self.upper_lines.iter().map(|v| v.as_slice())
+    }
 
+    pub fn drain_output(&mut self) -> Vec<BaseOutput> {
+        self.cleared = false;
         std::mem::take(&mut self.output)
     }
 }
@@ -89,12 +105,12 @@ impl UI for BaseUI {
         match self.current_window {
             Window::Lower => {
                 match self.output.last_mut() {
-                    Some(BaseOutput::Lower { style, content })
+                    Some(BaseOutput { style, content })
                     if *style == self.current_style => {
                         content.push_str(text);
                     }
                     _ => {
-                        self.output.push(BaseOutput::Lower {
+                        self.output.push(BaseOutput {
                             style: self.current_style,
                             content: text.to_string()
                         })
@@ -135,15 +151,15 @@ impl UI for BaseUI {
         self.print(object);
     }
 
-    fn set_status_bar(&self, left: &str, right: &str) {
+    fn set_status_bar(&mut self, left: &str, right: &str) {
+        self.status_line = Some((left.to_string(), right.to_string()));
     }
 
     fn split_window(&mut self, lines: u16) {
         let current_lines = self.requested_height;
         let requested_lines = lines as usize;
-        if current_lines > requested_lines {
-            self.output.push(BaseOutput::Upper { lines: self.upper_lines.clone() });
-        } else if current_lines < requested_lines {
+
+        if current_lines < requested_lines {
             self.resolve_upper_height();
             for _ in current_lines..requested_lines {
                 self.upper_lines.push(vec![]);
@@ -158,20 +174,16 @@ impl UI for BaseUI {
         }
         self.current_window = window;
 
-        match window {
-            Window::Lower => {
-                self.output.push(BaseOutput::Upper { lines: self.upper_lines.clone() });
-            }
-            Window::Upper => {
-                self.upper_cursor = (0, 0);
-            }
+        if window == Window::Upper {
+            self.upper_cursor = (0, 0);
         }
     }
 
     fn erase_window(&mut self, window: Window) {
         match window {
             Window::Lower => {
-                self.output.push(BaseOutput::EraseLower);
+                self.cleared = true;
+                self.output.clear();
             }
             Window::Upper => {
                 for line in &mut self.upper_lines {

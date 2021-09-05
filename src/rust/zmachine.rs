@@ -219,22 +219,7 @@ impl<ZUI> Zmachine<ZUI> {
             memory_output: vec![],
         };
 
-        // Provide the game some information about the interpreter it's running in.
-        if version >= 4 {
-            let (width, height) = zvm.options.dimensions;
-            // yes, the order switches between the two!
-            zvm.memory.write_byte(0x20, height as u8);
-            zvm.memory.write_byte(0x21, width as u8);
-            zvm.memory.write_word(0x22, width);
-            zvm.memory.write_word(0x24, height);
-            zvm.memory.write_byte(0x26, 1);
-            zvm.memory.write_byte(0x27, 1);
-        }
-
-        // clear bits for features we don't support: pictures, undo, mouse, sound
-        let mut flags2 = zvm.memory.read_byte(0x10);
-        flags2 &= 0b11100010;
-        zvm.memory.write_byte(0x10, flags2);
+        zvm.set_dynamic_headers();
 
         // read into dictionary & word separators
         zvm.populate_dictionary();
@@ -512,6 +497,28 @@ impl<ZUI> Zmachine<ZUI> {
         }
 
         length
+    }
+
+    /// The interpreter provides some information about itself to the running game
+    /// via special memory locations. This is important to set for both new games
+    /// and on restarts (in case the old and new interpreter had different values.)
+    fn set_dynamic_headers(&mut self) {
+        if self.version >= 4 {
+            let (width, height) = self.options.dimensions;
+            // yes, the order switches between the two!
+            self.memory.write_byte(0x20, height as u8);
+            self.memory.write_byte(0x21, width as u8);
+            self.memory.write_word(0x22, width);
+            self.memory.write_word(0x24, height);
+            self.memory.write_byte(0x26, 1);
+            self.memory.write_byte(0x27, 1);
+        }
+
+        // clear bits for features we don't support: pictures, undo, mouse, sound
+        // TODO: not sure if this is correct!
+        let mut flags2 = self.memory.read_byte(0x10);
+        flags2 &= 0b11100010;
+        self.memory.write_byte(0x10, flags2);
     }
 
     fn populate_dictionary(&mut self) {
@@ -1013,7 +1020,7 @@ impl<ZUI> Zmachine<ZUI> {
 }
 
 impl<ZUI: UI> Zmachine<ZUI> {
-    pub fn update_status_bar(&self) {
+    pub fn update_status_bar(&mut self) {
         // status bar only used in v1-3
         if self.version > 3 {
             return;
@@ -1674,6 +1681,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
             self.process_result(&instr, 0);
         } else {
             self.restore_state(state.unwrap().as_slice());
+            // TODO: should we be doing this in any other circumstances?
+            self.set_dynamic_headers();
             self.process_restore_result();
         }
     }
@@ -2029,7 +2038,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
     }
 
     // OP0_188
-    fn do_show_status(&self) {
+    fn do_show_status(&mut self) {
         self.update_status_bar();
     }
 

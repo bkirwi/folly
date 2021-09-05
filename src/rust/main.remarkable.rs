@@ -165,13 +165,19 @@ impl Element {
         }
     }
 
-    fn upper_window(font: &Font<'static>, lines: &Vec<Vec<(TextStyle, char)>>) -> Option<Element> {
+    fn upper_window(font: &Font<'static>, status: Option<(&str, &str)>, lines: &Vec<Vec<(TextStyle, char)>>) -> Option<Element> {
 
-        if lines.is_empty() {
+        if lines.is_empty() && status.is_none() {
             return None;
         }
 
         let mut widgets = vec![];
+
+        if let Some((left, right)) = status {
+            // 4 chars minimum padding + 8 for the score/time is reduces the chars available by 12
+            let line = format!(" {:width$}  {:8} ", left, right, width=(CHARS_PER_LINE-12));
+            widgets.push(Text::layout(font, &line, 34));
+        }
 
         for line in lines {
             let flattened: String = line.into_iter().take(CHARS_PER_LINE).map(|(_,c)| c).collect();
@@ -254,6 +260,7 @@ impl Widget for Element {
 struct SaveMeta {
     location: String,
     score_and_turn: String,
+    status_line: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -331,7 +338,7 @@ impl Session {
         self.maybe_new_page(element.size().y);
         if self.pages.last().is_empty() {
             let upper = self.zvm.ui.upper_window();
-            if let Some(window) = Element::upper_window(&self.font.monospace, upper) {
+            if let Some(window) = Element::upper_window(&self.font.monospace, self.zvm.ui.status_line(), upper) {
                 self.pages.push_stack(window);
             }
         }
@@ -361,10 +368,14 @@ impl Session {
             } else {
                 SaveMeta {
                     location: "Unknown".to_string(),
-                    score_and_turn: "0/0".to_string()
+                    score_and_turn: "0/0".to_string(),
+                    status_line: Some("Unknown".to_string()),
                 }
             };
-            let slug = format!("{} - {}", &meta.location, &meta.score_and_turn);
+            let slug = match &meta.status_line {
+                Some(line) => line.clone(),
+                None => format!("{} - {}", &meta.location, &meta.score_and_turn),
+            };
 
             page.push_stack(
                 Element::file_display(&self.font.roman, &slug, &text, Some(Msg::Restore(Some((path, meta)))))
@@ -443,24 +454,8 @@ impl Session {
         self.zvm_state = result.clone();
 
         let mut buffer = String::new();
-        let mut clear_screen = false;
 
-        for action in self.zvm.ui.drain_output() {
-            match action {
-                BaseOutput::Lower { style, content } => {
-                    buffer.push_str(&content);
-                }
-                BaseOutput::Upper { lines } => {
-                    // FIXME: this isn't good yet
-                }
-                BaseOutput::EraseLower => {
-                    clear_screen = true;
-                    buffer.clear()
-                }
-            }
-        }
-
-        if clear_screen {
+        if self.zvm.ui.is_cleared() {
             if !self.pages.last().is_empty() && self.pages.last().remaining().y > LINE_HEIGHT * 2 {
                 self.push_advance_space();
                 self.pages.push_stack(
@@ -470,9 +465,12 @@ impl Session {
             self.maybe_new_page(TEXT_AREA_HEIGHT);
         }
 
+        for BaseOutput { style, content } in self.zvm.ui.drain_output() {
+            buffer.push_str(&content);
+        }
         self.append_buffer(buffer);
 
-        if let Some(upper) = Element::upper_window(&self.font.monospace, self.zvm.ui.upper_window()) {
+        if let Some(upper) = Element::upper_window(&self.font.monospace, self.zvm.ui.status_line(), self.zvm.ui.upper_window()) {
             match self.pages.last_mut().first_mut() {
                 Some(e @ Element::UpperWindow(_)) if e.size() == upper.size() => {
                     *e = upper;
@@ -496,9 +494,24 @@ impl Session {
                 let save_path = self.save_root.join(Path::new(&save_file_name));
                 fs::write(&save_path, data).unwrap();
 
+                let status_line =
+                    if let Some((left, right)) = self.zvm.ui.status_line() {
+                        let name_width = self.zvm.options.dimensions.0 - 2;
+                        Some(format!("{}  {}", left, right))
+                    } else {
+                        match self.zvm.ui.upper_window().get(0) {
+                            Some(header) => {
+                                let string = header.iter().map(|(_, c)| c).collect::<String>();
+                                Some(string)
+                            },
+                            None => None,
+                        }
+                    };
+
                 let meta = SaveMeta {
                     location: place,
                     score_and_turn: score,
+                    status_line,
                 };
                 let meta_json = serde_json::to_string(&meta).unwrap();
                 let meta_path = save_path.with_extension("meta");
@@ -508,7 +521,7 @@ impl Session {
                 self.push_element(Element::Break(LINE_HEIGHT/2));
                 self.push_element(Element::file_display(
                     &self.font.roman,
-                    &format!("{} - {}", &meta.location, &meta.score_and_turn),
+                    &meta.status_line.unwrap_or("unknown".to_string()),
                     save_path.to_string_lossy().borrow(),
                     None
                 ));
@@ -695,7 +708,7 @@ impl Game {
     }
 
     pub fn update(&mut self, action: Action, message: Msg) {
-        let text_area_shape = self.size();
+        let text_area_shape = self.bounds.size();
         match message {
             Msg::Input { page, line, margin } => {
                 if let GameState::Playing { session} = &mut self.state {
@@ -788,7 +801,7 @@ impl Game {
                     let state = session.advance();
                     assert!(state == Step::ReadLine || state == Step::ReadChar);
                 } else {
-                    session.restore_menu(saves, self.size(), true)
+                    session.restore_menu(saves, text_area_shape, true)
                 }
 
                 self.state = GameState::Playing { session }
@@ -804,6 +817,12 @@ impl Game {
                             );
                             session.pages.push_stack(Element::Break(LINE_HEIGHT));
                         }
+
+                        session.restore(&path);
+                        // This allows the game to redraw the upper window after a restore
+                        // Otherwise, the "Restoring..." message we print below ends up awkwardly on its own page.
+                        session.zvm.step();
+
                         session.pages.push_stack(
                         Element::Line(false, Text::layout(&self.fonts.roman, "Restoring game...", LINE_HEIGHT))
                         );
@@ -815,7 +834,6 @@ impl Game {
                             None,
                         ));
                         session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
-                        session.restore(&path);
                     }
                     let state = session.advance();
                     assert!(state == Step::ReadLine || state == Step::ReadChar);

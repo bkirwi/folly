@@ -822,19 +822,20 @@ impl Game {
                         session.restore(&path);
                         // This allows the game to redraw the upper window after a restore
                         // Otherwise, the "Restoring..." message we print below ends up awkwardly on its own page.
-                        session.zvm.step();
-
-                        session.pages.push_stack(
-                        Element::Line(false, Text::layout(&self.fonts.roman, "Restoring game...", LINE_HEIGHT))
-                        );
-                        session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
-                        session.pages.push_stack(Element::file_display(
-                            &self.fonts.roman,
-                            &format!("{} - {}", &meta.location, &meta.score_and_turn),
-                            &path.to_string_lossy(),
-                            None,
-                        ));
-                        session.pages.push_stack(Element::Break(LINE_HEIGHT / 2));
+                        // FIXME: still on its own page because a new UI has clear=true... is that the right behaviour?
+                        // session.zvm.step();
+                        //
+                        // session.push_element(
+                        // Element::Line(false, Text::layout(&self.fonts.roman, "Restoring game...", LINE_HEIGHT))
+                        // );
+                        // session.push_element(Element::Break(LINE_HEIGHT / 2));
+                        // session.push_element(Element::file_display(
+                        //     &self.fonts.roman,
+                        //     &format!("{} - {}", &meta.location, &meta.score_and_turn),
+                        //     &path.to_string_lossy(),
+                        //     None,
+                        // ));
+                        // session.push_element(Element::Break(LINE_HEIGHT / 2));
                     }
                     let state = session.advance();
                     assert!(state == Step::ReadLine || state == Step::ReadChar);

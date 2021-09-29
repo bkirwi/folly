@@ -2118,9 +2118,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
     fn do_print_char(&mut self, chr: u16) {
         let code = chr as u8;
         let ch = if code >= 155 && code <= 223 {
-            let ch = DEFAULT_UNICODE_TABLE[(code - 155) as usize];
-            dbg!(ch);
-            ch
+            DEFAULT_UNICODE_TABLE[(code - 155) as usize]
         } else {
             code as char
         };
@@ -2313,9 +2311,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
         } else {
             first > second
         };
-
-        dbg!(first, second, size, force_forward, is_forward, count);
-
+        
         if is_forward {
             for i in 0..count {
                 self.memory.write_byte(second + i, self.memory.read_byte(first + i));

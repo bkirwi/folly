@@ -1,6 +1,6 @@
 
 use std::boxed::Box;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
 use std::fmt;
 use std::fmt::Write as FmtWrite;
@@ -164,8 +164,8 @@ pub struct Zmachine<ZUI> {
     attr_width: usize,
     paused_instr: Option<Instruction>,
     current_state: Option<(String, Vec<u8>)>,
-    undos: Vec<(String, Vec<u8>)>,
-    redos: Vec<(String, Vec<u8>)>,
+    undos: VecDeque<Vec<u8>>,
+    undo_limit: usize,
     rng: rand::XorShiftRng,
     disable_output: bool,
     memory_output: Vec<(usize, usize)>,
@@ -210,8 +210,8 @@ impl<ZUI> Zmachine<ZUI> {
             attr_width: if version <= 3 { 4 } else { 6 },
             paused_instr: None,
             current_state: None,
-            undos: Vec::new(),
-            redos: Vec::new(),
+            undos: VecDeque::new(),
+            undo_limit: 16,
             rng: rand::SeedableRng::from_seed(options.rand_seed.clone()),
             memory,
             options,
@@ -1069,47 +1069,47 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.memory.write(0, save.memory.as_slice());
     }
 
-    pub fn undo(&mut self) -> bool {
-        if let Some(ref instr) = self.paused_instr {
-            if instr.opcode != Opcode::VAR_228 {
-                return false;
-            }
-        }
-
-        if self.undos.is_empty() {
-            self.ui.print("\n[Can't undo that far.]\n");
-            return false;
-        }
-
-        let new_current = self.undos.pop().unwrap();
-        self.redos.push(self.current_state.take().unwrap());
-
-        self.restore_state(new_current.1.as_slice());
-        self.current_state = Some(new_current);
-
-        true
-    }
-
-    pub fn redo(&mut self) -> bool {
-        if let Some(ref instr) = self.paused_instr {
-            if instr.opcode != Opcode::VAR_228 {
-                return false;
-            }
-        }
-
-        if self.redos.is_empty() {
-            self.ui.print("\n[Nothing to redo.]\n");
-            return false;
-        }
-
-        let new_current = self.redos.pop().unwrap();
-        self.undos.push(self.current_state.take().unwrap());
-
-        self.restore_state(new_current.1.as_slice());
-        self.current_state = Some(new_current);
-
-        true
-    }
+    // pub fn undo(&mut self) -> bool {
+    //     if let Some(ref instr) = self.paused_instr {
+    //         if instr.opcode != Opcode::VAR_228 {
+    //             return false;
+    //         }
+    //     }
+    //
+    //     if self.undos.is_empty() {
+    //         self.ui.print("\n[Can't undo that far.]\n");
+    //         return false;
+    //     }
+    //
+    //     let new_current = self.undos.pop().unwrap();
+    //     self.redos.push(self.current_state.take().unwrap());
+    //
+    //     self.restore_state(new_current.1.as_slice());
+    //     self.current_state = Some(new_current);
+    //
+    //     true
+    // }
+    //
+    // pub fn redo(&mut self) -> bool {
+    //     if let Some(ref instr) = self.paused_instr {
+    //         if instr.opcode != Opcode::VAR_228 {
+    //             return false;
+    //         }
+    //     }
+    //
+    //     if self.redos.is_empty() {
+    //         self.ui.print("\n[Nothing to redo.]\n");
+    //         return false;
+    //     }
+    //
+    //     let new_current = self.redos.pop().unwrap();
+    //     self.undos.push(self.current_state.take().unwrap());
+    //
+    //     self.restore_state(new_current.1.as_slice());
+    //     self.current_state = Some(new_current);
+    //
+    //     true
+    // }
 
     fn get_arguments(&mut self, operands: &[Operand]) -> Vec<u16> {
         operands
@@ -1341,7 +1341,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_255, &[num]) => Some(self.do_check_arg_count(num)),
             (EXT_1002, &[num, places]) => Some(self.do_log_shift(num, places)),
             (EXT_1003, &[num, places]) => Some(self.do_art_shift(num, places)),
-            (EXT_1009, &[]) => Some(u16::MAX), // TODO: actually implement save_undo
+            (EXT_1009, &[]) => Some(self.do_save_undo(&instr)),
             _ => None,
         };
 
@@ -1411,6 +1411,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_251, &[text_addr, parse_addr]) => self.do_tokenise(text_addr, parse_addr),
             (VAR_253, &[first, second, size]) => self.do_copy_table(first, second, size),
             (VAR_254, _) => (),
+            (EXT_1010, &[]) => self.do_restore_undo(),
 
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",
@@ -1508,7 +1509,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             "$props" => self.debug_object_properties(arg),
             "$simple" => self.debug_object_simple(arg.parse().unwrap_or(1)),
             "$header" => self.debug_header(),
-            "$history" => self.debug_history(),
+            // "$history" => self.debug_history(),
             "$have_attr" => self.debug_have_attribute(arg),
             "$have_prop" => self.debug_have_property(arg),
             "$steal" => self.debug_steal(arg),
@@ -1516,8 +1517,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
             "$quit" => process::exit(0),
             // if undo/redo fails, should ask for input again
             // if they succeed, do nothing because zmachine state changed
-            "$undo" => should_ask_again = !self.undo(),
-            "$redo" => should_ask_again = !self.redo(),
+            // "$undo" => should_ask_again = !self.undo(),
+            // "$redo" => should_ask_again = !self.redo(),
             // unrecognized commands should ask for user input again
             _ => {
                 should_ask_again = false;
@@ -1574,15 +1575,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 }
                 // QUIT (breaks loop)
                 Opcode::OP0_186 => {
-                    // undo 2x - get to the savestate right before the
-                    // "are you sure?" dialog box that usually shows up:
-                    self.undos.pop();
-
-                    // if let Some((_, state)) = self.undos.pop() {
-                    //     self.send_save_message("savestate", &state);
-                    // }
-
-                    return Step::Done; // done == true
+                    return Step::Done;
                 }
                 // READ (breaks loop)
                 Opcode::VAR_228 => {
@@ -1633,14 +1626,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
             return;
         }
 
-        // new input changes timelines, so remove any obsolete redos
-        self.redos.clear();
-
-        // move current state into the undo list now
-        if self.current_state.is_some() {
-            self.undos.push(self.current_state.take().unwrap());
-        }
-
         // explicitly handle read (need to get args first)
         let args = self.get_arguments(instr.operands.as_slice());
         self.do_sread_second(args[0], args[1], input);
@@ -1651,14 +1636,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let instr = self.paused_instr.take().expect(
             "Can't handle input, no paused instruction to resume",
         );
-
-        // new input changes timelines, so remove any obsolete redos
-        self.redos.clear();
-
-        // move current state into the undo list now
-        if self.current_state.is_some() {
-            self.undos.push(self.current_state.take().unwrap());
-        }
 
         self.process_result(&instr, input as u16);
     }
@@ -2388,6 +2365,25 @@ impl<ZUI: UI> Zmachine<ZUI> {
         }
         (number as i16) as u16
     }
+
+    fn do_save_undo(&mut self, instr: &Instruction) -> u16 {
+        let pc = instr.next - 1;
+        let state = self.make_save_state(pc);
+
+        self.undos.push_back(state);
+        while self.undos.len() > self.undo_limit {
+            self.undos.pop_front();
+        }
+
+        1 // successful!
+    }
+
+    fn do_restore_undo(&mut self) {
+        if let Some(save_contents) = self.undos.pop_back() {
+            self.restore_state(&save_contents);
+            self.process_restore_result();
+        }
+    }
 }
 
 // debug functions
@@ -2707,27 +2703,17 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.insert_obj(num, you);
     }
 
-    pub fn debug_history(&mut self) {
-        let undo_count = self.undos.len();
-        let total = self.undos.len() + self.redos.len() + 1;
-
-        self.ui.debug(&"History:");
-
-        for (i, state) in self.undos.iter().enumerate() {
-            let index = i + 1;
-            self.ui.debug(&format!("    ({}/{}) @ {}", index, total, state.0));
-        }
-
-        if let Some(ref current) = self.current_state {
-            let index = undo_count + 1;
-            self.ui.debug(&format!(" -> ({}/{}) @ {}", index, total, current.0));
-        }
-
-        for (i, state) in self.redos.iter().rev().enumerate() {
-            let index = undo_count + i + 2;
-            self.ui.debug(&format!("    ({}/{}) @ {}", index, total, state.0));
-        }
-    }
+    // pub fn debug_history(&mut self) {
+    //     let undo_count = self.undos.len();
+    //     let total = self.undos.len() + self.redos.len() + 1;
+    //
+    //     self.ui.debug(&"History:");
+    //
+    //     for (i, state) in self.undos.iter().enumerate() {
+    //         let index = i + 1;
+    //         self.ui.debug(&format!("    ({}/{}) @ {}", index, total, state.0));
+    //     }
+    // }
 
     fn debug_routine(&mut self, routine_addr: usize) {
         let mut read = self.memory.get_reader(routine_addr);

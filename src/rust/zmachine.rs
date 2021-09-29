@@ -165,7 +165,6 @@ pub struct Zmachine<ZUI> {
     paused_instr: Option<Instruction>,
     current_state: Option<(String, Vec<u8>)>,
     undos: VecDeque<Vec<u8>>,
-    undo_limit: usize,
     rng: rand::XorShiftRng,
     disable_output: bool,
     memory_output: Vec<(usize, usize)>,
@@ -211,7 +210,6 @@ impl<ZUI> Zmachine<ZUI> {
             paused_instr: None,
             current_state: None,
             undos: VecDeque::new(),
-            undo_limit: 16,
             rng: rand::SeedableRng::from_seed(options.rand_seed.clone()),
             memory,
             options,
@@ -2311,7 +2309,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
         } else {
             first > second
         };
-        
+
         if is_forward {
             for i in 0..count {
                 self.memory.write_byte(second + i, self.memory.read_byte(first + i));
@@ -2366,10 +2364,15 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let pc = instr.next - 1;
         let state = self.make_save_state(pc);
 
-        self.undos.push_back(state);
-        while self.undos.len() > self.undo_limit {
+        if self.options.undo_limit == 0 {
+            return 0; // undos not supported
+        }
+
+        // pop before pushing so we don't grow the buffer unnecessarily
+        while self.undos.len() >= self.options.undo_limit {
             self.undos.pop_front();
         }
+        self.undos.push_back(state);
 
         1 // successful!
     }

@@ -1397,7 +1397,9 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_236, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vs2
             (VAR_237, &[window]) => self.do_erase_window(window),
             // (VAR_238, _) => self.do_erase_line(), TODO
-            (VAR_239, &[_]) => (), // this is only specified for v6, but some v5/v8 games have it
+            // It's not clear from the spec what to do with a single operand here,
+            // but eg. anchorhead seems to use this with just a line number.
+            (VAR_239, &[line]) => self.do_set_cursor(line, 1),
             (VAR_239, &[line, column]) => self.do_set_cursor(line, column),
             (VAR_241, &[style]) => self.do_set_text_style(style),
             (VAR_242, _) => (), // set buffering, but does it matter in this day and age?
@@ -1926,7 +1928,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // OP1_138
     fn do_print_obj(&mut self, obj: u16) {
         let name = self.get_object_name(obj);
-        self.ui.print_object(&name);
+        self.print(&name);
     }
 
     // OP1_139

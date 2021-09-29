@@ -47,6 +47,7 @@ mod zmachine;
 const LEFT_MARGIN: i32 = 200;
 const TOP_MARGIN: i32 = 200;
 const LINE_HEIGHT: i32 = 44;
+const MONOSPACE_LINE_HEIGHT: i32 = 30;
 const LINE_LENGTH: i32 = 1000;
 const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
 const CHARS_PER_LINE: usize = 60;
@@ -176,12 +177,12 @@ impl Element {
         if let Some((left, right)) = status {
             // 4 chars minimum padding + 8 for the score/time is reduces the chars available by 12
             let line = format!(" {:width$}  {:8} ", left, right, width=(CHARS_PER_LINE-12));
-            widgets.push(Text::layout(font, &line, 34));
+            widgets.push(Text::layout(font, &line, MONOSPACE_LINE_HEIGHT));
         }
 
         for line in lines {
             let flattened: String = line.into_iter().take(CHARS_PER_LINE).map(|(_,c)| c).collect();
-            let widget = Text::layout(font, &flattened, 34);
+            let widget = Text::layout(font, &flattened, MONOSPACE_LINE_HEIGHT);
             widgets.push(widget);
         }
 

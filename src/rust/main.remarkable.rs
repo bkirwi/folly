@@ -18,7 +18,7 @@ use armrest::{gesture, ml, ui};
 use armrest::gesture::{Gesture, Tool, Touch};
 use armrest::ink::Ink;
 use armrest::ml::{LanguageModel, Recognizer, Spline};
-use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget, TextBuilder, ActualText};
+use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget, TextBuilder, ActualText, Handlers};
 use clap::{App, Arg};
 use libremarkable::cgmath::{EuclideanSpace, Point2, Vector2};
 use libremarkable::framebuffer::{core, FramebufferDraw, FramebufferRefresh, FramebufferIO};
@@ -206,14 +206,14 @@ impl Widget for Element {
         Vector2::new(width, height)
     }
 
-    fn render(&self, mut sink: Frame<Msg>) {
+    fn render(&self, handlers: &mut Handlers<Msg>, mut frame: Frame) {
         let margin_width = (DISPLAYWIDTH as i32 - LINE_LENGTH) / 2;
 
-        let mut prompt_frame = sink.split_off(Side::Left, margin_width);
+        let mut prompt_frame = frame.split_off(Side::Left, margin_width);
         match self {
             Element::Input { id, active, prompt, ..} if *id == active.get() => {
                 prompt_frame.split_off(Side::Right, 12);
-                prompt_frame.render_placed(prompt, 1.0, 0.5);
+                prompt.render_placed(handlers, prompt_frame, 1.0, 0.5);
             }
             Element::File { .. } => {
                 if let Some(mut canvas) = prompt_frame.canvas(388) {
@@ -231,27 +231,27 @@ impl Widget for Element {
             }
         }
 
-        sink.split_off(Side::Right, margin_width);
+        frame.split_off(Side::Right, margin_width);
 
         match self {
             Element::Break(_) => {}
             Element::Line(center, t) => {
                 if *center {
-                    sink.render_placed(t, 0.5, 0.0);
+                    t.render_placed(handlers, frame, 0.5, 0.0);
                 } else {
-                    t.render(sink);
+                    t.render(handlers, frame);
                 }
             }
             Element::Input { area, .. } => {
-                area.render(sink);
+                area.render(handlers, frame);
             }
             Element::File { big_text, small_text } => {
-                sink.render_split(big_text, Side::Top, 0.0);
-                small_text.render(sink);
+                big_text.render_split(handlers, &mut frame, Side::Top, 0.0);
+                small_text.render(handlers, frame);
             }
             Element::UpperWindow(lines) => {
                 for line in lines {
-                    sink.render_split(line, Side::Top, 0.0);
+                    line.render_split(handlers, &mut frame, Side::Top, 0.0);
                 }
             }
         }
@@ -878,8 +878,8 @@ impl Widget for Game {
         Vector2::new(DISPLAYWIDTH as i32, DISPLAYHEIGHT as i32)
     }
 
-    fn render(&self, mut frame: Frame<Msg>) {
-        frame.on_input(Msg::Page);
+    fn render(&self, handlers: &mut Handlers<Msg>, mut frame: Frame) {
+        handlers.push(&frame, Msg::Page);
         frame.split_off(Side::Top, self.bounds.top_left.y);
 
         let mut body_frame = frame.split_off(Side::Top, TEXT_AREA_HEIGHT);
@@ -892,7 +892,7 @@ impl Widget for Game {
             GameState::Init { games } => games,
         };
 
-        current_pages.render(body_frame);
+        current_pages.render(handlers, body_frame);
 
         let page_number = current_pages.current_index();
         let page_string = (current_pages.current_index() + 1).to_string();
@@ -906,20 +906,20 @@ impl Widget for Game {
 
         if page_number > 0 {
             let left_arrow = Text::layout(&self.fonts.roman, "<", LINE_HEIGHT * 2 / 3);
-            before.render_placed(&left_arrow, 0.98, 0.5);
+            left_arrow.render_placed(handlers, before, 0.98, 0.5);
         } else {
             mem::drop(before);
         }
 
         let mut after = frame.split_off(Side::Right, page_number_start);
         if page_number + 1 < current_pages.len() {
-            let left_arrow = Text::layout(&self.fonts.roman, ">", LINE_HEIGHT * 2 / 3);
-            after.render_placed(&left_arrow, 0.02, 0.5)
+            let right_arrow = Text::layout(&self.fonts.roman, ">", LINE_HEIGHT * 2 / 3);
+            right_arrow.render_placed(handlers, after, 0.02, 0.5)
         } else {
             mem::drop(after);
         }
 
-        frame.render_placed(&page_text, 0.5, 0.5);
+        page_text.render_placed(handlers, frame, 0.5, 0.5);
     }
 }
 

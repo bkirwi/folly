@@ -226,13 +226,13 @@ fn main() {
                 zvm.handle_save_result(true);
             }
             Step::Restore => {
-                let prompt = format!("\nFilename [{}]: ", &zvm.options.save_name);
-                zvm.ui.print(&prompt);
+                print!("\nFilename [{}]: ", &zvm.options.save_name);
+                io::stdout().flush().unwrap();
 
                 let input = get_user_input();
                 let mut path = PathBuf::from(&zvm.options.save_dir);
                 let mut data = Vec::new();
-                let mut file;
+                path.push(input);
 
                 if let Ok(handle) = File::open(&path) {
                     file = handle;

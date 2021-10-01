@@ -168,6 +168,7 @@ pub struct Zmachine<ZUI> {
     rng: rand::XorShiftRng,
     disable_output: bool,
     memory_output: Vec<(usize, usize)>,
+    current_style: TextStyle,
 }
 
 impl<ZUI> Zmachine<ZUI> {
@@ -215,6 +216,7 @@ impl<ZUI> Zmachine<ZUI> {
             options,
             disable_output: false,
             memory_output: vec![],
+            current_style: TextStyle::default(),
         };
 
         zvm.set_dynamic_headers();
@@ -510,6 +512,10 @@ impl<ZUI> Zmachine<ZUI> {
             self.memory.write_word(0x24, height);
             self.memory.write_byte(0x26, 1);
             self.memory.write_byte(0x27, 1);
+
+            let mut flags1 = self.memory.read_byte(0x01);
+            flags1 &= 0b01011100;
+            self.memory.write_byte(0x01, flags1);
         }
 
         // clear bits for features we don't support: pictures, undo, mouse, sound
@@ -517,6 +523,10 @@ impl<ZUI> Zmachine<ZUI> {
         let mut flags2 = self.memory.read_byte(0x10);
         flags2 &= 0b11100010;
         self.memory.write_byte(0x10, flags2);
+
+        // Claim to satisfy standard version 1.0.
+        // self.memory.write_byte(0x32, 1);
+        // self.memory.write_byte(0x33, 0);
     }
 
     fn populate_dictionary(&mut self) {
@@ -2059,10 +2069,37 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.frames.push(frame);
     }
 
+    // Certain bits of interpreter state can be adjusted by reading from or writing to the header.
+    // For the user, it's more convenient if
+    fn trap_header_write(&mut self, address: u16, value: u8) {
+        match address {
+            0x11 => {
+                let old_value = self.memory.read_byte(address as usize);
+                let was_fixed_pitch = (old_value & 0b0000_0010) != 0;
+                let is_fixed_pitch = (value & 0b0000_0010) != 0;
+                match (was_fixed_pitch, is_fixed_pitch) {
+                    (false, true) if !self.current_style.fixed_pitch() => {
+                        self.ui.set_text_style(TextStyle::new(self.current_style.0 | 0b1000));
+                    }
+                    (true, false) if !self.current_style.fixed_pitch() => {
+                        self.ui.set_text_style(self.current_style);
+                    }
+                    _ => {}
+                };
+            }
+            _ => {}
+        };
+    }
+
     // VAR_225
     fn do_storew(&mut self, array_addr: u16, index: u16, value: u16) {
         let word_index = index.wrapping_mul(2);
         let word_addr = array_addr.wrapping_add(word_index);
+
+        if word_addr < 0x40 {
+            self.trap_header_write(word_addr, (value >> 8) as u8);
+            self.trap_header_write(word_addr.wrapping_add(1), value as u8);
+        }
 
         self.memory.write_word(word_addr as usize, value);
     }
@@ -2070,6 +2107,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // VAR_226
     fn do_storeb(&mut self, array: u16, index: u16, value: u16) {
         let word_addr = array.wrapping_add(index);
+
+        if word_addr < 0x40 {
+            self.trap_header_write(word_addr, value as u8);
+        }
 
         self.memory.write_byte(word_addr as usize, value as u8);
     }
@@ -2193,6 +2234,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     // VAR_241
     fn do_set_text_style(&mut self, style: u16) {
+        self.current_style = TextStyle::new(style);
         self.ui.set_text_style(TextStyle::new(style));
     }
 

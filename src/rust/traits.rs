@@ -5,7 +5,7 @@ pub enum Window {
 }
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
-pub struct TextStyle(u16);
+pub struct TextStyle(pub u16);
 
 impl TextStyle {
     pub fn new(flags: u16) -> TextStyle { TextStyle(flags) }

@@ -18,7 +18,7 @@ use armrest::{gesture, ml, ui};
 use armrest::gesture::{Gesture, Tool, Touch};
 use armrest::ink::Ink;
 use armrest::ml::{LanguageModel, Recognizer, Spline};
-use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget};
+use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget, TextBuilder, ActualText};
 use clap::{App, Arg};
 use libremarkable::cgmath::{EuclideanSpace, Point2, Vector2};
 use libremarkable::framebuffer::{core, FramebufferDraw, FramebufferRefresh, FramebufferIO};
@@ -29,6 +29,7 @@ use libremarkable::input::ev::EvDevContext;
 use libremarkable::input::multitouch::MultitouchEvent;
 use rusttype::Font;
 use serde::{Deserialize, Serialize};
+use itertools::{Itertools, Position};
 
 use crate::options::Options;
 use crate::traits::{UI, BaseUI, BaseOutput, Window, TextStyle};
@@ -45,12 +46,12 @@ mod traits;
 mod zmachine;
 
 const LEFT_MARGIN: i32 = 200;
-const TOP_MARGIN: i32 = 200;
+const TOP_MARGIN: i32 = 150;
 const LINE_HEIGHT: i32 = 44;
-const MONOSPACE_LINE_HEIGHT: i32 = 30;
+const MONOSPACE_LINE_HEIGHT: i32 = 34;
 const LINE_LENGTH: i32 = 1000;
 const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
-const CHARS_PER_LINE: usize = 60;
+const CHARS_PER_LINE: usize = 64;
 
 const SECTION_BREAK: &str = "* * *";
 
@@ -144,7 +145,7 @@ enum TextAlign {
 
 enum Element {
     Break(i32),
-    Line(bool, ui::Text<'static, Msg>),
+    Line(bool, ui::ActualText<Msg>),
     Input {
         id: usize,
         active: Rc<Cell<usize>>,
@@ -200,7 +201,7 @@ impl Widget for Element {
             Element::Line(_, t) => t.size().y,
             Element::Input { area: i, .. } => i.size().y,
             Element::File { .. } => LINE_HEIGHT * 2,
-            Element::UpperWindow(lines) => LINE_HEIGHT * lines.len() as i32,
+            Element::UpperWindow(lines) => LINE_HEIGHT * (lines.len() + 1) as i32,
         };
         Vector2::new(width, height)
     }
@@ -346,14 +347,33 @@ impl Session {
         self.pages.push_stack(element);
     }
 
+    // push a section break, if one is needed (ie. we're not already on a fresh page, and we have the room)
+    fn push_section_break(&mut self) {
+        let page = self.pages.last();
+        if page.is_empty() {
+            return;
+        }
+
+        let remaining = page.remaining().y;
+        if remaining > LINE_HEIGHT * 2 {
+            self.push_advance_space();
+            self.push_element(
+                Element::Line(true, ActualText::line(LINE_HEIGHT, &self.font.roman, SECTION_BREAK))
+            );
+            self.push_advance_space();
+        } else {
+            self.maybe_new_page(LINE_HEIGHT * 2);
+        }
+    }
+
     pub fn restore_menu(&mut self, saves: Vec<PathBuf>, bounds: Vector2<i32>, initial_run: bool) {
         let mut page = Paged::new(Stack::new(bounds));
 
-        for widget in Text::wrap(
+        for widget in ActualText::wrap(
+            LINE_HEIGHT,
             &self.font.roman,
             "Select a saved game to restore from the list below. (Your most recent saved game is listed first.)",
             LINE_LENGTH,
-            LINE_HEIGHT,
             true,
         ) {
             page.push_stack(Element::Line(false, widget));
@@ -383,67 +403,88 @@ impl Session {
             );
         }
 
-        if initial_run {
-            page.push_stack(Element::Break(LINE_HEIGHT));
-            let widget = Text::layout(
-                &self.font.roman,
-                "Or tap here to start from the beginning.",
-                LINE_HEIGHT,
-            ).on_touch(Some(Msg::Restore(None)));
-
-            page.push_stack(Element::Line(false, widget));
-        }
+        // if initial_run {
+        //     page.push_stack(Element::Break(LINE_HEIGHT));
+        //     let widget = TextBuilder::new(LINE_HEIGHT).with_words(
+        //         &self.font.roman,
+        //         "Or tap here to start from the beginning.",
+        //     ).on_touch(Some(Msg::Restore(None)));
+        //
+        //     page.push_stack(Element::Line(false, widget));
+        // }
         self.restore = Some(page);
     }
 
-    pub fn append_buffer(&mut self, buffer: String) {
+    pub fn append_buffer(&mut self, buffer: Vec<BaseOutput>) {
         if buffer.is_empty() {
             return;
         }
 
-        let paragraphs: Vec<_> = buffer.trim_end_matches(">").trim_end().split("\n\n").collect();
+        let mut lines = vec![];
+        let mut current_line = vec![];
+        for output in buffer {
+            for positioned in output.content.split("\n").with_position() {
+                match positioned {
+                    Position::Middle(_) | Position::Last(_) => {
+                        lines.push(mem::take(&mut current_line));
+                    }
+                    _ => {}
+                }
 
-        let mut first = true;
-        for paragraph in paragraphs {
-            if paragraph.chars().all(|c| c.is_ascii_whitespace()) {
+                current_line.push(
+                    BaseOutput { content: positioned.into_inner().to_string(), ..output}
+                );
+            }
+        }
+
+        if let Some(last) = current_line.last_mut() {
+            if let Some(stripped) = last.content.strip_suffix(|c| c == ' ' || c == '>') {
+                last.content = stripped.to_string();
+            }
+        }
+
+        lines.push(current_line);
+
+        // TODO: reimplement the title paragraph functionality
+
+        fn blank(line: &[BaseOutput]) -> bool {
+            line.iter().all(|o| o.content.trim().is_empty())
+        }
+
+        // Drop any trailing blank lines before the input area.
+        while lines.last().map_or(false, |l| blank(&l)) {
+            lines.pop();
+        }
+
+        for line in lines {
+            if blank(&line) {
+                self.push_advance_space();
                 continue;
             }
 
-            if !first {
-                self.push_advance_space();
+            let mut text_builder = TextBuilder::from_font(44, &self.font.roman);
+
+            for BaseOutput { style, content } in line {
+                // In theory we may want to support multiple of these at once,
+                // but we're not required to, so we don't just yet.
+                let font = match (style.fixed_pitch(), style.bold(), style.italic()) {
+                    (true, _, _) => &self.font.monospace,
+                    (_, true, _) => &self.font.bold,
+                    (_, _, true) => &self.font.italic,
+                    (_, _, _) => &self.font.roman,
+                };
+
+                let scale = if style.fixed_pitch() {
+                    MONOSPACE_LINE_HEIGHT
+                } else {
+                    LINE_HEIGHT
+                };
+
+                text_builder.push_words(font, scale as f32, &content);
             }
-
-            // TODO: a less embarassing heuristic for the title paragraph
-            if paragraph.contains("Serial number") &&
-                (paragraph.contains("Infocom") || paragraph.contains("Inform")) &&
-                paragraph.split('\n').count() > 1 {
-                // We think this is a title slug!
-                let mut paragraph_iter = paragraph.split("\n");
-
-                if let Some(title) = paragraph_iter.next() {
-                    self.maybe_new_page(LINE_HEIGHT * 16);
-
-                    for widget in ui::Text::wrap(&self.font.roman, title, self.pages.size().x, LINE_HEIGHT * 2, false) {
-                        self.push_element(Element::Line(true, widget));
-                    }
-
-                    for line in paragraph_iter {
-                        let widget = Text::layout(&self.font.roman, line, LINE_HEIGHT);
-                        self.push_element(Element::Line(true, widget));
-                    }
-                }
-            } else {
-                for line in paragraph.split("\n") {
-                    if line.chars().all(|c| c.is_ascii_whitespace()) {
-                        continue;
-                    }
-                    for widget in ui::Text::wrap(&self.font.roman, line, self.pages.size().x, LINE_HEIGHT, true) {
-                        self.push_element(Element::Line(false, widget));
-                    }
-                }
+            for text in text_builder.wrap(LINE_LENGTH, true) {
+                self.push_element(Element::Line(false, text));
             }
-
-            first = false;
         }
     }
 
@@ -454,21 +495,12 @@ impl Session {
         let result = self.zvm.step();
         self.zvm_state = result.clone();
 
-        let mut buffer = String::new();
-
         if self.zvm.ui.is_cleared() {
-            if !self.pages.last().is_empty() && self.pages.last().remaining().y > LINE_HEIGHT * 2 {
-                self.push_advance_space();
-                self.pages.push_stack(
-                    Element::Line(true, Text::layout(&self.font.roman, SECTION_BREAK, LINE_HEIGHT))
-                );
-            }
+            self.push_section_break();
             self.maybe_new_page(TEXT_AREA_HEIGHT);
         }
 
-        for BaseOutput { style, content } in self.zvm.ui.drain_output() {
-            buffer.push_str(&content);
-        }
+        let buffer = self.zvm.ui.drain_output();
         self.append_buffer(buffer);
 
         if let Some(upper) = Element::upper_window(&self.font.monospace, self.zvm.ui.status_line(), self.zvm.ui.upper_window()) {
@@ -486,7 +518,7 @@ impl Session {
         match result {
             Step::Save(data) => {
                 self.push_element(
-                    Element::Line(false, Text::layout(&self.font.roman, "Saving game...", LINE_HEIGHT))
+                    Element::Line(false, ActualText::line(LINE_HEIGHT, &self.font.roman, "Saving game..."))
                 );
 
                 let (place, score) = self.zvm.get_status();
@@ -663,7 +695,8 @@ impl Game {
     fn game_page(font: &Font<'static>, size: Vector2<i32>, root_dir: &Path) -> Paged<Stack<Element>> {
         let mut games = Paged::new(Stack::new(size));
 
-        games.push_stack(Element::Line(true, Text::layout(font, "ENCRUSTED", LINE_HEIGHT * 3)));
+        let header = ActualText::line(LINE_HEIGHT * 3, font, "ENCRUSTED");
+        games.push_stack(Element::Line(true, header));
         games.push_stack(Element::Break(LINE_HEIGHT));
 
         let game_vec = Game::list_games(root_dir).expect(&format!("Unable to list games in {:?}", root_dir));
@@ -677,11 +710,11 @@ impl Game {
             "Welcome to Encrusted! Choose a game from the list to get started.".to_string()
         };
 
-        for widget in Text::wrap(
+        for widget in ActualText::wrap(
+            LINE_HEIGHT,
             font,
             &welcome_message,
             LINE_LENGTH,
-            LINE_HEIGHT,
             true,
         ) {
             games.push_stack(Element::Line(false, widget));
@@ -810,15 +843,7 @@ impl Game {
             Msg::Restore(to) => {
                 if let GameState::Playing { session }  = &mut self.state {
                     if let Some((path, meta)) = to {
-                        if session.pages.len() > 1 || session.pages.current().len() > 0 {
-                            // Restoring in the middle of a session... add a visual break.
-                            session.pages.push_stack(Element::Break(LINE_HEIGHT));
-                            session.pages.push_stack(
-                            Element::Line(true, Text::layout(&self.fonts.roman, SECTION_BREAK, LINE_HEIGHT))
-                            );
-                            session.pages.push_stack(Element::Break(LINE_HEIGHT));
-                        }
-
+                        session.push_section_break();
                         session.restore(&path);
                         // This allows the game to redraw the upper window after a restore
                         // Otherwise, the "Restoring..." message we print below ends up awkwardly on its own page.

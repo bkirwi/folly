@@ -1656,6 +1656,16 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.process_result(&instr, if successful { 1 } else { 0 });
     }
 
+    // NB: since most restores completely blow away the state,
+    // this should only be called when a restore fails.
+    pub fn handle_restore_result(&mut self) {
+        let instr = self.paused_instr.take().expect(
+            "Can't handle input, no paused instruction to resume",
+        );
+
+        self.process_result(&instr, 0);
+    }
+
 
     // Web UI only
     #[allow(dead_code)]

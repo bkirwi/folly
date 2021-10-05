@@ -18,7 +18,7 @@ use armrest::{gesture, ml, ui};
 use armrest::gesture::{Gesture, Tool, Touch};
 use armrest::ink::Ink;
 use armrest::ml::{LanguageModel, Recognizer, Spline};
-use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget, TextBuilder, ActualText, Handlers};
+use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget, TextBuilder, Handlers};
 use clap::{App, Arg};
 use libremarkable::cgmath::{EuclideanSpace, Point2, Vector2};
 use libremarkable::framebuffer::{core, FramebufferDraw, FramebufferRefresh, FramebufferIO};
@@ -135,7 +135,8 @@ enum Msg {
     Page,
     RecognizedText(usize, String),
     LoadGame(PathBuf),
-    Restore(Option<(PathBuf, SaveMeta)>),
+    Restore(PathBuf, SaveMeta),
+    Resume,
 }
 
 enum TextAlign {
@@ -145,25 +146,28 @@ enum TextAlign {
 
 enum Element {
     Break(i32),
-    Line(bool, ui::ActualText<Msg>),
+    Line(bool, Text<Msg>),
     Input {
         id: usize,
         active: Rc<Cell<usize>>,
-        prompt: ui::Text<'static, Msg>,
-        area: ui::InputArea<Msg>
+        prompt: Text<Msg>,
+        area: ui::InputArea<Msg>,
+        message: Msg
     },
     File {
-        big_text: Text<'static, Msg>,
-        small_text: Text<'static, Msg>,
+        big_text: Text<Msg>,
+        small_text: Text<Msg>,
+        message: Option<Msg>,
     },
-    UpperWindow(Vec<ui::Text<'static, Msg>>),
+    UpperWindow(Vec<Text<Msg>>),
 }
 
 impl Element {
     fn file_display(font: &Font<'static>, big_text: &str, path_str: &str, msg: Option<Msg>) -> Element {
         Element::File {
-            big_text: Text::layout(&font, &big_text, LINE_HEIGHT * 4 / 3).on_touch(msg.clone()),
-            small_text: Text::layout(&font, &path_str, LINE_HEIGHT * 2 / 3).on_touch(msg)
+            big_text: Text::literal(LINE_HEIGHT * 4 / 3, &font, &big_text),
+            small_text: Text::literal(LINE_HEIGHT * 2 / 3, &font, &path_str),
+            message: msg
         }
     }
 
@@ -178,12 +182,12 @@ impl Element {
         if let Some((left, right)) = status {
             // 4 chars minimum padding + 8 for the score/time is reduces the chars available by 12
             let line = format!(" {:width$}  {:8} ", left, right, width=(CHARS_PER_LINE-12));
-            widgets.push(Text::layout(font, &line, MONOSPACE_LINE_HEIGHT));
+            widgets.push(Text::literal(MONOSPACE_LINE_HEIGHT, font, &line));
         }
 
         for line in lines {
             let flattened: String = line.into_iter().take(CHARS_PER_LINE).map(|(_,c)| c).collect();
-            let widget = Text::layout(font, &flattened, MONOSPACE_LINE_HEIGHT);
+            let widget = Text::literal(MONOSPACE_LINE_HEIGHT, font, &flattened);
             widgets.push(widget);
         }
 
@@ -211,7 +215,8 @@ impl Widget for Element {
 
         let mut prompt_frame = frame.split_off(Side::Left, margin_width);
         match self {
-            Element::Input { id, active, prompt, ..} if *id == active.get() => {
+            Element::Input { id, active, prompt, message, ..} if *id == active.get() => {
+                handlers.push(&prompt_frame, message.clone());
                 prompt_frame.split_off(Side::Right, 12);
                 prompt.render_placed(handlers, prompt_frame, 1.0, 0.5);
             }
@@ -221,7 +226,7 @@ impl Widget for Element {
                     let fb = canvas.framebuffer();
                     fb.fill_rect(
                         Point2::new(bounds.bottom_right.x - 12, bounds.top_left.y + 12),
-                        Vector2::new(2, bounds.height() as u32 - 18),
+                        Vector2::new(2, bounds.size().y as u32 - 18),
                         color::BLACK,
                     );
                 }
@@ -245,7 +250,10 @@ impl Widget for Element {
             Element::Input { area, .. } => {
                 area.render(handlers, frame);
             }
-            Element::File { big_text, small_text } => {
+            Element::File { big_text, small_text , message } => {
+                if let Some(m) = message {
+                    handlers.push(&frame, m.clone());
+                }
                 big_text.render_split(handlers, &mut frame, Side::Top, 0.0);
                 small_text.render(handlers, frame);
             }
@@ -263,13 +271,6 @@ struct SaveMeta {
     location: String,
     score_and_turn: String,
     status_line: Option<String>,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-enum SessionState {
-    Running,
-    Restoring,
-    Quitting,
 }
 
 struct Session {
@@ -358,7 +359,7 @@ impl Session {
         if remaining > LINE_HEIGHT * 2 {
             self.push_advance_space();
             self.push_element(
-                Element::Line(true, ActualText::line(LINE_HEIGHT, &self.font.roman, SECTION_BREAK))
+                Element::Line(true, Text::literal(LINE_HEIGHT, &self.font.roman, SECTION_BREAK))
             );
             self.push_advance_space();
         } else {
@@ -369,13 +370,27 @@ impl Session {
     pub fn restore_menu(&mut self, saves: Vec<PathBuf>, bounds: Vector2<i32>, initial_run: bool) {
         let mut page = Paged::new(Stack::new(bounds));
 
-        for widget in ActualText::wrap(
-            LINE_HEIGHT,
+        let mut builder = TextBuilder::from_font(LINE_HEIGHT, &self.font.roman);
+        builder.push_words(
             &self.font.roman,
-            "Select a saved game to restore from the list below. (Your most recent saved game is listed first.)",
-            LINE_LENGTH,
-            true,
-        ) {
+            LINE_HEIGHT as f32,
+            "Select a saved game to restore from the list below, or ",
+            None,
+        );
+        let linked_message = if initial_run {
+            "tap here to start from the beginning"
+        } else {
+            "tap here to return to where you left off"
+        };
+        builder.push_words(
+            &self.font.bold,
+            LINE_HEIGHT as f32,
+            linked_message,
+            Some(Msg::Resume),
+        );
+        builder.push_words(&self.font.bold, LINE_HEIGHT as f32, ".", None);
+
+        for widget in builder.wrap(LINE_LENGTH, true) {
             page.push_stack(Element::Line(false, widget));
         }
         page.push_stack(Element::Break(LINE_HEIGHT));
@@ -399,19 +414,10 @@ impl Session {
             };
 
             page.push_stack(
-                Element::file_display(&self.font.roman, &slug, &text, Some(Msg::Restore(Some((path, meta)))))
+                Element::file_display(&self.font.monospace, &slug, &text, Some(Msg::Restore(path, meta)))
             );
         }
 
-        // if initial_run {
-        //     page.push_stack(Element::Break(LINE_HEIGHT));
-        //     let widget = TextBuilder::new(LINE_HEIGHT).with_words(
-        //         &self.font.roman,
-        //         "Or tap here to start from the beginning.",
-        //     ).on_touch(Some(Msg::Restore(None)));
-        //
-        //     page.push_stack(Element::Line(false, widget));
-        // }
         self.restore = Some(page);
     }
 
@@ -480,7 +486,7 @@ impl Session {
                     LINE_HEIGHT
                 };
 
-                text_builder.push_words(font, scale as f32, &content);
+                text_builder.push_words(font, scale as f32, &content, None);
             }
             for text in text_builder.wrap(LINE_LENGTH, true) {
                 self.push_element(Element::Line(false, text));
@@ -518,7 +524,7 @@ impl Session {
         match result {
             Step::Save(data) => {
                 self.push_element(
-                    Element::Line(false, ActualText::line(LINE_HEIGHT, &self.font.roman, "Saving game..."))
+                    Element::Line(false, Text::line(LINE_HEIGHT, &self.font.roman, "Saving game..."))
                 );
 
                 let (place, score) = self.zvm.get_status();
@@ -577,16 +583,17 @@ impl Session {
                 self.push_element(Element::Input {
                     id: input_id,
                     active: self.active_input.clone(),
-                    prompt: ui::Text::layout(&self.font.roman, "☞", LINE_HEIGHT),
+                    prompt: ui::Text::literal(LINE_HEIGHT, &self.font.roman, "☞"),
                     area: ui::InputArea::new(Vector2::new(600, 88)).on_ink(None),
+                    message: Msg::Page,
                 });
 
                 let last_page = self.pages.len() - 1;
                 let next_element = self.pages.last().len() - 1;
 
-                if let Some(Element::Input { prompt, area, .. }) = self.pages.last_mut().last_mut() {
-                    prompt.on_touch = Some(Msg::Input { page: last_page, line: next_element, margin: true });
-                    *area = ui::InputArea::new(Vector2::new(600, 88)).on_ink(Some(Msg::Input { page: last_page, line: next_element, margin: false }))
+                if let Some(Element::Input { message, area, .. }) = self.pages.last_mut().last_mut() {
+                    *area = ui::InputArea::new(Vector2::new(600, 88)).on_ink(Some(Msg::Input { page: last_page, line: next_element, margin: false }));
+                    *message = Msg::Input { page: last_page, line: next_element, margin: true};
                 }
 
                 result
@@ -695,7 +702,7 @@ impl Game {
     fn game_page(font: &Font<'static>, size: Vector2<i32>, root_dir: &Path) -> Paged<Stack<Element>> {
         let mut games = Paged::new(Stack::new(size));
 
-        let header = ActualText::line(LINE_HEIGHT * 3, font, "ENCRUSTED");
+        let header = Text::literal(LINE_HEIGHT * 3, font, "ENCRUSTED");
         games.push_stack(Element::Line(true, header));
         games.push_stack(Element::Break(LINE_HEIGHT));
 
@@ -710,7 +717,7 @@ impl Game {
             "Welcome to Encrusted! Choose a game from the list to get started.".to_string()
         };
 
-        for widget in ActualText::wrap(
+        for widget in Text::wrap(
             LINE_HEIGHT,
             font,
             &welcome_message,
@@ -814,15 +821,10 @@ impl Game {
                             // Start a new page unless the current page is empty
                             // session.maybe_new_page(TEXT_AREA_HEIGHT);
                             let saves = session.load_saves().unwrap();
-                            if saves.is_empty() {
-                                // Nothing to restore to! Bail out to the top.
-                                self.state = GameState::Init { games: Game::game_page(&self.fonts.roman, self.size(), &self.root_dir) };
-                            } else {
-                                session.restore_menu(saves, text_area_shape, false);
-                            }
+                            session.restore_menu(saves, text_area_shape, false);
                         }
                         Step::Done => {
-                            self.state = GameState::Init { games: Game::game_page(&self.fonts.roman, self.size(), &self.root_dir) };
+                            self.state = GameState::Init { games: Game::game_page(&self.fonts.roman, self.bounds.size(), &self.root_dir) };
                         }
                         _ => {}
                     };
@@ -840,30 +842,20 @@ impl Game {
 
                 self.state = GameState::Playing { session }
             }
-            Msg::Restore(to) => {
+            Msg::Restore(path, meta) => {
                 if let GameState::Playing { session }  = &mut self.state {
-                    if let Some((path, meta)) = to {
-                        session.push_section_break();
-                        session.restore(&path);
-                        // This allows the game to redraw the upper window after a restore
-                        // Otherwise, the "Restoring..." message we print below ends up awkwardly on its own page.
-                        // FIXME: still on its own page because a new UI has clear=true... is that the right behaviour?
-                        // session.zvm.step();
-                        //
-                        // session.push_element(
-                        // Element::Line(false, Text::layout(&self.fonts.roman, "Restoring game...", LINE_HEIGHT))
-                        // );
-                        // session.push_element(Element::Break(LINE_HEIGHT / 2));
-                        // session.push_element(Element::file_display(
-                        //     &self.fonts.roman,
-                        //     &format!("{} - {}", &meta.location, &meta.score_and_turn),
-                        //     &path.to_string_lossy(),
-                        //     None,
-                        // ));
-                        // session.push_element(Element::Break(LINE_HEIGHT / 2));
+                    session.push_section_break();
+                    session.restore(&path);
+                    let state = session.advance();
+                    session.restore = None;
+                }
+            }
+            Msg::Resume => {
+                if let GameState::Playing { session } = &mut self.state {
+                    if session.zvm_state == Step::Restore {
+                        session.zvm.handle_restore_result();
                     }
                     let state = session.advance();
-                    assert!(state == Step::ReadLine || state == Step::ReadChar);
                     session.restore = None;
                 }
             }
@@ -896,7 +888,7 @@ impl Widget for Game {
 
         let page_number = current_pages.current_index();
         let page_string = (current_pages.current_index() + 1).to_string();
-        let page_text = Text::layout(&self.fonts.roman, &page_string, LINE_HEIGHT);
+        let page_text = Text::literal(LINE_HEIGHT,&self.fonts.roman, &page_string);
 
         let page_number_start = (DISPLAYWIDTH as i32 - page_text.size().x) / 2;
 
@@ -905,7 +897,7 @@ impl Widget for Game {
         let mut before = frame.split_off(Side::Left, page_number_start);
 
         if page_number > 0 {
-            let left_arrow = Text::layout(&self.fonts.roman, "<", LINE_HEIGHT * 2 / 3);
+            let left_arrow = Text::line(LINE_HEIGHT * 2 / 3, &self.fonts.roman, "<");
             left_arrow.render_placed(handlers, before, 0.98, 0.5);
         } else {
             mem::drop(before);
@@ -913,7 +905,7 @@ impl Widget for Game {
 
         let mut after = frame.split_off(Side::Right, page_number_start);
         if page_number + 1 < current_pages.len() {
-            let right_arrow = Text::layout(&self.fonts.roman, ">", LINE_HEIGHT * 2 / 3);
+            let right_arrow = Text::line(LINE_HEIGHT * 2 / 3, &self.fonts.roman, ">");
             right_arrow.render_placed(handlers, after, 0.02, 0.5)
         } else {
             mem::drop(after);

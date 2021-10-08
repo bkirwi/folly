@@ -2008,10 +2008,20 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     // OP0_183
     fn do_restart(&mut self) {
+        self.ui.split_window(0);
+        self.ui.erase_window(Window::Lower);
+        self.ui.set_text_style(TextStyle::default());
+        self.ui.set_cursor(1, 1);
+        self.current_style = TextStyle::default();
+        self.disable_output = false;
+        self.memory_output.clear();
+
         self.pc = self.initial_pc;
         self.frames.clear();
         self.frames.push(Frame::empty());
         self.memory.write(0, self.original_dynamic.as_slice());
+
+        self.set_dynamic_headers();
     }
 
     // OP0_184

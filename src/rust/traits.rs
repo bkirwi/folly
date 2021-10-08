@@ -89,10 +89,6 @@ impl BaseUI {
         &self.upper_lines
     }
 
-    pub fn uppler_lines(&self) -> impl Iterator<Item=&[(TextStyle, char)]> {
-        self.upper_lines.iter().map(|v| v.as_slice())
-    }
-
     pub fn drain_output(&mut self) -> Vec<BaseOutput> {
         self.cleared = false;
         std::mem::take(&mut self.output)

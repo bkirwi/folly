@@ -518,11 +518,10 @@ impl<ZUI> Zmachine<ZUI> {
             self.memory.write_byte(0x01, flags1);
         }
 
-        // clear bits for features we don't support: pictures, undo, mouse, sound
-        // TODO: not sure if this is correct!
-        let mut flags2 = self.memory.read_byte(0x10);
-        flags2 &= 0b11100010;
-        self.memory.write_byte(0x10, flags2);
+        // clear bits for features we don't support: pictures, mouse, sound, menus
+        let mut flags2 = self.memory.read_word(0x10);
+        flags2 &= 0b1111_1110_0101_0111;
+        self.memory.write_word(0x10, flags2);
 
         // Claim to satisfy standard version 1.0.
         // self.memory.write_byte(0x32, 1);
@@ -1349,6 +1348,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_255, &[num]) => Some(self.do_check_arg_count(num)),
             (EXT_1002, &[num, places]) => Some(self.do_log_shift(num, places)),
             (EXT_1003, &[num, places]) => Some(self.do_art_shift(num, places)),
+            (EXT_1004, &[font]) => Some(self.do_set_font(font)),
             (EXT_1009, &[]) => Some(self.do_save_undo(&instr)),
             _ => None,
         };
@@ -1369,6 +1369,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (OP2_14, &[obj, dest]) => self.do_insert_obj(obj, dest),
             (OP2_25, &[addr, arg]) => self.do_call(instr, addr, &[arg]), // call_2s
             (OP2_26, &[addr, arg]) => self.do_call(instr, addr, &[arg]), // call_2n
+            (OP2_27, _) => {}, // set_colour... ignored!
             (OP2_28, &[value, frame]) => self.do_throw(value, frame),
             (OP1_133, &[var]) => self.do_inc(var),
             (OP1_134, &[var]) => self.do_dec(var),
@@ -1384,6 +1385,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (OP0_177, _) => self.do_rfalse(),
             (OP0_178, _) => self.do_print(instr),
             (OP0_179, _) => self.do_print_ret(instr),
+            (OP0_180, _) => {},
             // (OP0_181, _) => self.do_save(instr),
             // (OP0_182, _) => self.do_restore(instr),
             (OP0_183, _) => self.do_restart(),
@@ -1420,6 +1422,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_253, &[first, second, size]) => self.do_copy_table(first, second, size),
             (VAR_254, _) => (),
             (EXT_1010, &[]) => self.do_restore_undo(),
+            (EXT_1011, &[code_point]) => self.do_print_unicode(code_point),
 
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",
@@ -2422,6 +2425,16 @@ impl<ZUI: UI> Zmachine<ZUI> {
         (number as i16) as u16
     }
 
+    // EXT_1004
+    fn do_set_font(&mut self, font: u16) -> u16 {
+        // Currently, we don't support alternative fonts. Implemented as though font 1 is always selected.
+        match font {
+            0 => 1, // If the font ID requested is 0, the font is not changed, and the ID of the current font is returned.
+            1 => 1, // If the requested font is available, then it is chosen for the current window, and the store value is the font ID of the previous font.
+            _ => 0, // If the font is unavailable, nothing will happen and the store value is 0.
+        }
+    }
+
     fn do_save_undo(&mut self, instr: &Instruction) -> u16 {
         let pc = instr.next - 1;
         let state = self.make_save_state(pc);
@@ -2443,6 +2456,12 @@ impl<ZUI: UI> Zmachine<ZUI> {
         if let Some(save_contents) = self.undos.pop_back() {
             self.restore_state(&save_contents);
             self.process_restore_result();
+        }
+    }
+
+    fn do_print_unicode(&mut self, code_point: u16) {
+        if let Some(ch) = char::from_u32(code_point as u32) {
+            self.print(&ch.to_string());
         }
     }
 }

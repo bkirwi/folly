@@ -24,9 +24,10 @@ use armrest::ml::{LanguageModel, Recognizer, Spline};
 use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget, TextBuilder, Handlers, Void, Fill};
 use clap::{App, Arg};
 use libremarkable::cgmath::{EuclideanSpace, Point2, Vector2};
-use libremarkable::framebuffer::{core, FramebufferDraw, FramebufferRefresh, FramebufferIO};
+use libremarkable::framebuffer::{core, FramebufferRefresh, FramebufferIO};
 use libremarkable::framebuffer::common::{color, DISPLAYWIDTH, DISPLAYHEIGHT};
 use libremarkable::framebuffer::FramebufferBase;
+use libremarkable::framebuffer::FramebufferDraw;
 use libremarkable::input::{InputDevice, InputEvent};
 use libremarkable::input::ev::EvDevContext;
 use libremarkable::input::multitouch::MultitouchEvent;
@@ -456,22 +457,24 @@ impl Session {
     pub fn restore_menu(&mut self, saves: Vec<PathBuf>, bounds: Vector2<i32>, initial_run: bool) {
         let mut page = Page::new();
 
-        let mut builder = TextBuilder::from_font(LINE_HEIGHT, &self.font.roman);
-        builder.push_words(
-            "Select a saved game to restore from the list below, or ",
-            None,
-        );
-        let linked_message = if initial_run {
-            "tap here to start from the beginning"
+        let continue_message = if initial_run {
+            " to start from the beginning."
         } else {
-            "tap here to return to where you left off"
+            " to return to where you left off."
         };
-        builder.with_font(&*BOLD, LINE_HEIGHT as f32);
-        builder.push_words(linked_message, Some(Msg::Resume));
-        builder.with_font(&*ROMAN, LINE_HEIGHT as f32);
-        builder.push_words( ".", None);
 
-        for widget in builder.wrap(LINE_LENGTH, true) {
+        let lines =
+            Text::builder(LINE_HEIGHT, &self.font.roman)
+                .words("Select a saved game to restore from the list below, or ")
+                .font(&*BOLD, LINE_HEIGHT as f32)
+                .message(Msg::Resume)
+                .words("tap here")
+                .no_message()
+                .font(&*ROMAN, LINE_HEIGHT as f32)
+                .words( continue_message)
+                .wrap(LINE_LENGTH, true);
+
+        for widget in lines {
             page.push_element(Element::Line(false, widget));
         }
         page.push_advance_space();
@@ -529,7 +532,7 @@ impl Session {
         }
 
         if let Some(last) = current_line.last_mut() {
-            if let Some(stripped) = last.content.strip_suffix(|c| c == ' ' || c == '>') {
+            if let Some(stripped) = last.content.trim_end().strip_suffix('>') {
                 last.content = stripped.to_string();
             }
         }
@@ -553,7 +556,7 @@ impl Session {
                 continue;
             }
 
-            let mut text_builder = TextBuilder::from_font(44, &self.font.roman);
+            let mut text_builder = Text::builder(44, &self.font.roman);
 
             for BaseOutput { style, content } in line {
                 // In theory we may want to support multiple of these at once,
@@ -571,13 +574,13 @@ impl Session {
                     LINE_HEIGHT
                 };
 
-                text_builder.with_font(font, scale as f32);
+                text_builder = text_builder.font(font, scale as f32);
                 for (i, word) in content.split(' ').enumerate() {
                     if i != 0 {
-                        text_builder.push_space();
+                        text_builder = text_builder.space();
                     }
                     if !word.is_empty() {
-                        text_builder.push_literal(scale as f32, word);
+                        text_builder = text_builder.literal(word);
                     }
                 }
             }
@@ -662,7 +665,6 @@ impl Session {
                     Element::Line(false, Text::line(LINE_HEIGHT, &self.font.roman, "Saving game..."))
                 );
 
-                let (place, score) = self.zvm.get_status();
                 let now = chrono::offset::Local::now();
                 let save_file_name = format!("{}.sav", now.format("%Y-%m-%dT%H:%M:%S"));
                 let save_path = self.save_root.join(Path::new(&save_file_name));
@@ -683,8 +685,8 @@ impl Session {
                     };
 
                 let meta = SaveMeta {
-                    location: place,
-                    score_and_turn: score,
+                    location: "unknown".to_string(),
+                    score_and_turn: "unknown".to_string(),
                     status_line,
                 };
                 let meta_json = serde_json::to_string(&meta).unwrap();

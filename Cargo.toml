@@ -43,6 +43,7 @@ regex = "1.1.0"
 itertools = "0.10.1"
 termion = "1.5.6"
 armrest = { path = "../armrest" }
-libremarkable = "0.4.3"
+libremarkable = "0.5.0"
+# libremarkable = { path = "../libremarkable" }
 rusttype = "0.8.2"
 chrono = "0.4.19"

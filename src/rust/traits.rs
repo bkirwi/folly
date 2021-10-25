@@ -23,7 +23,7 @@ impl Default for TextStyle {
 }
 
 pub trait UI {
-    fn print(&mut self, text: &str);
+    fn print(&mut self, text: &str, style: TextStyle);
     fn debug(&mut self, text: &str);
     fn print_object(&mut self, object: &str);
     fn set_status_bar(&mut self, left: &str, right: &str);
@@ -32,7 +32,7 @@ pub trait UI {
     fn set_window(&mut self, _window: Window) {}
     fn erase_window(&mut self, _window: Window) {}
     fn set_cursor(&mut self, _line: u16, _column: u16) {}
-    fn set_text_style(&mut self, _text_style: TextStyle) {}
+    // fn set_text_style(&mut self, _text_style: TextStyle) {}
 
     // only used by web ui
     fn flush(&mut self);
@@ -47,7 +47,6 @@ pub struct BaseOutput {
 
 pub struct BaseUI {
     current_window: Window,
-    current_style: TextStyle,
     upper_cursor: (usize, usize),
     upper_lines: Vec<Vec<(TextStyle, char)>>,
     requested_height: usize, // https://eblong.com/zarf/glk/quote-box.html
@@ -60,7 +59,6 @@ impl BaseUI {
     pub fn new() -> BaseUI {
         BaseUI {
             current_window: Window::Lower,
-            current_style: TextStyle::new(0),
             upper_cursor: (0, 0),
             upper_lines: vec![],
             requested_height: 0,
@@ -97,17 +95,17 @@ impl BaseUI {
 
 
 impl UI for BaseUI {
-    fn print(&mut self, text: &str) {
+    fn print(&mut self, text: &str, style: TextStyle) {
         match self.current_window {
             Window::Lower => {
                 match self.output.last_mut() {
-                    Some(BaseOutput { style, content })
-                    if *style == self.current_style => {
+                    Some(BaseOutput { style: old_style, content })
+                    if *old_style == style => {
                         content.push_str(text);
                     }
                     _ => {
                         self.output.push(BaseOutput {
-                            style: self.current_style,
+                            style: style,
                             content: text.to_string()
                         })
                     }
@@ -132,7 +130,7 @@ impl UI for BaseUI {
                     for _ in line.len()..=column_number {
                         line.push((TextStyle::new(0), ' '));
                     }
-                    line[column_number] = (self.current_style, c);
+                    line[column_number] = (style, c);
                     self.upper_cursor.1 += 1
                 }
             }
@@ -144,7 +142,7 @@ impl UI for BaseUI {
     }
 
     fn print_object(&mut self, object: &str) {
-        self.print(object);
+        self.print(object, TextStyle::default());
     }
 
     fn set_status_bar(&mut self, left: &str, right: &str) {
@@ -197,10 +195,6 @@ impl UI for BaseUI {
             }
             self.upper_cursor = (to_index(line), to_index(column));
         }
-    }
-
-    fn set_text_style(&mut self, text_style: TextStyle) {
-        self.current_style = text_style;
     }
 
     fn flush(&mut self) {}

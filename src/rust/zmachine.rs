@@ -1625,18 +1625,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let instr = self.paused_instr.take().expect(
             "Can't handle input, no paused instruction to resume",
         );
-
-        // handle special debugging commands
-        // these inputs shouldn't be processed normally
-        if self.is_debug_command(&input) {
-            if self.handle_debug_command(&input) {
-                self.ui.print("\n>");
-            }
-
-            // return execution to JS, which will read user input again:
-            return;
-        }
-
         // explicitly handle read (need to get args first)
         let args = self.get_arguments(instr.operands.as_slice());
         self.do_sread_second(args[0], args[1], input);
@@ -1698,8 +1686,14 @@ impl<ZUI: UI> Zmachine<ZUI> {
     fn print(&mut self, text: &str) {
         match self.memory_output.last_mut() {
             None => {
+                let mut current_style = self.current_style;
+                if self.memory.read_byte(0x11) & 0b0000_0010 != 0 {
+                    // Force fixed-pitch bit is on!
+                    current_style.0 &= 0b1000
+                };
+
                 if !self.disable_output {
-                    self.ui.print(text);
+                    self.ui.print(text, self.current_style);
                 }
             }
             Some((_, end)) => {
@@ -2013,7 +2007,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
     fn do_restart(&mut self) {
         self.ui.split_window(0);
         self.ui.erase_window(Window::Lower);
-        self.ui.set_text_style(TextStyle::default());
         self.ui.set_cursor(1, 1);
         self.current_style = TextStyle::default();
         self.disable_output = false;
@@ -2092,49 +2085,16 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.frames.push(frame);
     }
 
-    // Certain bits of interpreter state can be adjusted by reading from or writing to the header.
-    // For the user, it's more convenient if
-    fn trap_header_write(&mut self, address: u16, value: u8) {
-        match address {
-            0x11 => {
-                let old_value = self.memory.read_byte(address as usize);
-                let was_fixed_pitch = (old_value & 0b0000_0010) != 0;
-                let is_fixed_pitch = (value & 0b0000_0010) != 0;
-                match (was_fixed_pitch, is_fixed_pitch) {
-                    (false, true) if !self.current_style.fixed_pitch() => {
-                        self.ui.set_text_style(TextStyle::new(self.current_style.0 | 0b1000));
-                    }
-                    (true, false) if !self.current_style.fixed_pitch() => {
-                        self.ui.set_text_style(self.current_style);
-                    }
-                    _ => {}
-                };
-            }
-            _ => {}
-        };
-    }
-
     // VAR_225
     fn do_storew(&mut self, array_addr: u16, index: u16, value: u16) {
         let word_index = index.wrapping_mul(2);
         let word_addr = array_addr.wrapping_add(word_index);
-
-        if word_addr < 0x40 {
-            self.trap_header_write(word_addr, (value >> 8) as u8);
-            self.trap_header_write(word_addr.wrapping_add(1), value as u8);
-        }
-
         self.memory.write_word(word_addr as usize, value);
     }
 
     // VAR_226
     fn do_storeb(&mut self, array: u16, index: u16, value: u16) {
         let word_addr = array.wrapping_add(index);
-
-        if word_addr < 0x40 {
-            self.trap_header_write(word_addr, value as u8);
-        }
-
         self.memory.write_byte(word_addr as usize, value as u8);
     }
 
@@ -2258,7 +2218,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // VAR_241
     fn do_set_text_style(&mut self, style: u16) {
         self.current_style = TextStyle::new(style);
-        self.ui.set_text_style(TextStyle::new(style));
     }
 
     // VAR_243

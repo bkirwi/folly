@@ -1420,7 +1420,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_250, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn2
             (VAR_251, &[text_addr, parse_addr]) => self.do_tokenise(text_addr, parse_addr),
             (VAR_253, &[first, second, size]) => self.do_copy_table(first, second, size),
-            (VAR_254, _) => (),
+            (VAR_254, _) => self.do_print_table(args[0], args[1], args.get(2).copied(), args.get(3).copied()),
             (EXT_1010, &[]) => self.do_restore_undo(),
             (EXT_1011, &[code_point]) => self.do_print_unicode(code_point),
 
@@ -2343,6 +2343,15 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 self.memory.write_byte(second + i, self.memory.read_byte(first + i));
             }
         };
+    }
+
+    fn do_print_table(&mut self, zstring: u16, width: u16, height: Option<u16>, skip: Option<u16>) {
+        assert!(height.is_none() && skip.is_none(), "Full printing of tables is not yet implemented!");
+
+        let data = self.memory.read(zstring as usize, width as usize).to_vec();
+        if let Ok(string) = str::from_utf8(&data) {
+            self.print(string)
+        }
     }
 
     // VAR_255

@@ -618,8 +618,6 @@ impl Session {
                     .position(|p| p.first().map_or(true, |(s, _)| !s.reverse_video()))
                     .unwrap_or(upper_window.len());
 
-
-
             fn blank_line(line: &[(TextStyle, char)]) -> bool {
                 line.iter().all(|(s, c)| !s.reverse_video() & c.is_ascii_whitespace())
             }

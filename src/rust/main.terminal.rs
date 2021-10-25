@@ -192,9 +192,7 @@ fn main() {
                 break;
             }
             Step::Save(data) => {
-                let prompt = format!("\nFilename [{}]: ", zvm.options.save_name);
-                zvm.ui.print(&prompt);
-
+                println!("\nFilename [{}]: ", zvm.options.save_name);
                 let input = get_user_input();
                 let mut path = PathBuf::from(&zvm.options.save_dir);
                 let mut file;
@@ -211,7 +209,7 @@ fn main() {
                 if let Ok(handle) = File::create(&path) {
                     file = handle;
                 } else {
-                    zvm.ui.print("Can't save to that file, try another?\n");
+                    println!("Can't save to that file, try another?\n");
                     zvm.handle_save_result(false);
                     return;
                 }

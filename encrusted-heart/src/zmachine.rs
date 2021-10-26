@@ -130,7 +130,6 @@ pub enum Step {
 pub struct Zmachine<ZUI> {
     pub ui: ZUI,
     pub options: Options,
-    pub instr_log: String,
     version: u8,
     memory: Buffer,
     original_dynamic: Vec<u8>,
@@ -175,7 +174,6 @@ impl<ZUI> Zmachine<ZUI> {
         let mut zvm = Zmachine {
             version,
             ui,
-            instr_log: String::new(),
             original_dynamic: memory.slice(0, static_start).to_vec(),
             globals_addr: memory.read_word(0x0C) as usize,
             routine_offset: memory.read_word(0x28) as usize,

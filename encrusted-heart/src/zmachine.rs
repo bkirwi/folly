@@ -1,4 +1,3 @@
-use std::boxed::Box;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
 use std::fmt;
@@ -36,11 +35,11 @@ enum ZStringState {
 pub struct Object {
     number: u16,
     name: String,
-    children: Vec<Box<Object>>,
+    children: Vec<Object>,
 }
 
 impl Object {
-    fn new<T>(number: u16, zvm: &Zmachine<T>) -> Box<Object> {
+    fn new<T>(number: u16, zvm: &Zmachine<T>) -> Object {
         let mut name = if number > 0 {
             zvm.get_object_name(number)
         } else {
@@ -51,11 +50,11 @@ impl Object {
             name += "(No Name)";
         }
 
-        Box::new(Object {
+        Object {
             number,
             name,
             children: Vec::new(),
-        })
+        }
     }
 
     fn print_tree(&self, indent: &str, mut depth: u8, is_last: bool) -> String {
@@ -80,7 +79,7 @@ impl Object {
 
         for (i, child) in self.children.iter().enumerate() {
             let is_last_child = i == self.children.len() - 1;
-            out += &(**child).print_tree(&next, depth, is_last_child);
+            out += &child.print_tree(&next, depth, is_last_child);
         }
 
         out
@@ -802,7 +801,7 @@ impl<ZUI> Zmachine<ZUI> {
             self.add_object_children(&mut *object);
         }
 
-        *root
+        root
     }
 
     fn find_object(&self, name: &str) -> Option<u16> {

@@ -4,7 +4,6 @@ use std::env;
 use std::fmt;
 use std::fmt::Write as FmtWrite;
 
-use std::process;
 use std::str;
 
 use enum_primitive::FromPrimitive;
@@ -153,7 +152,6 @@ pub struct Zmachine<ZUI> {
     obj_size: usize,
     attr_width: usize,
     paused_instr: Option<Instruction>,
-    current_state: Option<(String, Vec<u8>)>,
     undos: VecDeque<Vec<u8>>,
     rng: rand::XorShiftRng,
     disable_output: bool,
@@ -197,7 +195,6 @@ impl<ZUI> Zmachine<ZUI> {
             obj_size: if version <= 3 { 9 } else { 14 },
             attr_width: if version <= 3 { 4 } else { 6 },
             paused_instr: None,
-            current_state: None,
             undos: VecDeque::new(),
             rng: rand::SeedableRng::from_seed(options.rand_seed.clone()),
             memory,
@@ -1091,48 +1088,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.memory.write(0, save.memory.as_slice());
     }
 
-    // pub fn undo(&mut self) -> bool {
-    //     if let Some(ref instr) = self.paused_instr {
-    //         if instr.opcode != Opcode::VAR_228 {
-    //             return false;
-    //         }
-    //     }
-    //
-    //     if self.undos.is_empty() {
-    //         self.ui.print("\n[Can't undo that far.]\n");
-    //         return false;
-    //     }
-    //
-    //     let new_current = self.undos.pop().unwrap();
-    //     self.redos.push(self.current_state.take().unwrap());
-    //
-    //     self.restore_state(new_current.1.as_slice());
-    //     self.current_state = Some(new_current);
-    //
-    //     true
-    // }
-    //
-    // pub fn redo(&mut self) -> bool {
-    //     if let Some(ref instr) = self.paused_instr {
-    //         if instr.opcode != Opcode::VAR_228 {
-    //             return false;
-    //         }
-    //     }
-    //
-    //     if self.redos.is_empty() {
-    //         self.ui.print("\n[Nothing to redo.]\n");
-    //         return false;
-    //     }
-    //
-    //     let new_current = self.redos.pop().unwrap();
-    //     self.undos.push(self.current_state.take().unwrap());
-    //
-    //     self.restore_state(new_current.1.as_slice());
-    //     self.current_state = Some(new_current);
-    //
-    //     true
-    // }
-
     fn get_arguments(&mut self, operands: &[Operand]) -> Vec<u16> {
         operands
             .iter()
@@ -1460,108 +1415,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
         }
     }
 
-    fn is_debug_command(&self, input: &str) -> bool {
-        if !input.starts_with('$') {
-            return false;
-        }
-
-        let parts: Vec<_> = input.split_whitespace().collect();
-        let command = parts.first().unwrap();
-
-        let valid = [
-            "$dump",
-            "$dict",
-            "$tree",
-            "$room",
-            "$you",
-            "$find",
-            "$object",
-            "$parent",
-            "$simple",
-            "$attrs",
-            "$props",
-            "$header",
-            "$history",
-            "$have_attr",
-            "$have_prop",
-            "$undo",
-            "$redo",
-            "$redo",
-            "$teleport",
-            "$steal",
-            "$help",
-        ];
-
-        valid.contains(command)
-    }
-
-    fn print_command_help(&mut self) {
-        self.ui.debug(
-            "\
-            Available debug commands: \n\n\
-            $dump               (list stack frames and PC) \n\
-            $dict               (show games's dictionary) \n\
-            $tree               (list current object tree) \n\
-            $room               (show current room's sub-tree) \n\
-            $you                (show your sub-tree) \n\
-            $find name          (find object number from name) \n\
-            $object num/name    (show object's sub-tree) \n\
-            $parent num/name    (show object's parent sub-tree) \n\
-            $simple num         (object info, simple view) \n\
-            $attrs num/name     (list object attributes) \n\
-            $props num/name     (list object properties) \n\
-            $header             (show header info) \n\
-            $history            (list saved states) \n\
-            $have_attr num      (list objects that have given attribute enabled) \n\
-            $have_prop num      (list objects that have given property) \n\
-            $teleport num/name  (teleport to a room) \n\
-            $steal num/name     (takes any item) \n\
-            $undo \n\
-            $redo \n\
-            $quit
-        ",
-        );
-    }
-
-    fn handle_debug_command(&mut self, input: &str) -> bool {
-        let mut should_ask_again = true;
-        let parts: Vec<_> = input.split_whitespace().collect();
-        let (command, rest) = parts.split_first().unwrap();
-        let arg = &rest.join(" ");
-
-        match *command {
-            "$help" => self.print_command_help(),
-            "$dump" => self.debug_dump(),
-            "$dict" => self.debug_dictionary(),
-            "$tree" => self.debug_object_tree(),
-            "$room" => self.debug_room(),
-            "$you" => self.debug_yourself(),
-            "$find" => self.debug_find_object(arg),
-            "$object" => self.debug_object(arg),
-            "$parent" => self.debug_parent(arg),
-            "$attrs" => self.debug_object_attributes(arg),
-            "$props" => self.debug_object_properties(arg),
-            "$simple" => self.debug_object_simple(arg.parse().unwrap_or(1)),
-            "$header" => self.debug_header(),
-            // "$history" => self.debug_history(),
-            "$have_attr" => self.debug_have_attribute(arg),
-            "$have_prop" => self.debug_have_property(arg),
-            "$steal" => self.debug_steal(arg),
-            "$teleport" => self.debug_teleport(arg),
-            "$quit" => process::exit(0),
-            // if undo/redo fails, should ask for input again
-            // if they succeed, do nothing because zmachine state changed
-            // "$undo" => should_ask_again = !self.undo(),
-            // "$redo" => should_ask_again = !self.redo(),
-            // unrecognized commands should ask for user input again
-            _ => {
-                should_ask_again = false;
-            }
-        }
-
-        should_ask_again
-    }
-
     // Terminal UI only
     #[allow(dead_code)]
     pub fn run(&mut self) {
@@ -1596,8 +1449,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
                     let pc = instr.next - 1;
                     let state = self.make_save_state(pc);
 
-                    // let (location, _) = self.get_status();
-                    // self.current_state = Some((location, state.clone()));
                     self.paused_instr = Some(instr);
 
                     return Step::Save(state);
@@ -1614,24 +1465,14 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 // READ (breaks loop)
                 Opcode::VAR_228 => {
                     let _state = self.make_save_state(self.pc);
-
                     self.update_status_bar();
-
-                    // web ui saves current state here BEFORE processing user input
-                    // let (location, score) = self.get_status();
-                    // self.current_state = Some((location, state));
                     self.paused_instr = Some(instr);
-
                     return Step::ReadLine;
                 }
                 // READ_CHAR
                 Opcode::VAR_246 => {
                     let _state = self.make_save_state(self.pc);
-
-                    // let (location, _) = self.get_status();
-                    // self.current_state = Some((location, state));
                     self.paused_instr = Some(instr);
-
                     return Step::ReadChar;
                 }
                 _ => {
@@ -2037,12 +1878,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
     }
 
     // OP0_180 : nop, never actually used
-
-    fn process_save_result(&mut self, instr: &Instruction) {
-        // (v1-3): follow branch if needed (value "1" means the save succeeded)
-        // (v4+):  or store the value "1" at the give store position
-        self.process_result(instr, 1);
-    }
 
     fn process_restore_result(&mut self) {
         // On Versions 3 and 4, attempts to save the game (all questions about filenames are asked

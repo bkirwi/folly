@@ -1,34 +1,27 @@
 extern crate base64;
 extern crate clap;
 extern crate encrusted_heart;
+#[macro_use]
+extern crate lazy_static;
 extern crate rand;
 extern crate regex;
 extern crate serde_json;
 extern crate termion;
 
-#[macro_use]
-extern crate lazy_static;
-
-#[macro_use]
-extern crate enum_primitive;
-
-#[macro_use]
-extern crate serde_derive;
-
+use std::{io, mem, process};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
-use std::{io, mem, process};
 
 use clap::{App, Arg};
 use regex::Regex;
-
-use encrusted_heart::options::Options;
-use encrusted_heart::traits::{BaseOutput, BaseUI, UI};
-use encrusted_heart::zmachine::{Step, Zmachine};
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
+
+use encrusted_heart::options::Options;
+use encrusted_heart::traits::{BaseOutput, BaseUI};
+use encrusted_heart::zmachine::{Step, Zmachine};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

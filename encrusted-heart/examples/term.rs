@@ -236,7 +236,7 @@ fn main() {
                 // restore program counter position, stack frames, and dynamic memory
                 file.read_to_end(&mut data)
                     .expect("Error reading save file");
-                zvm.restore(&base64::encode(&data));
+                zvm.restore(&data);
             }
             Step::ReadChar => {
                 let stdout = io::stdout().into_raw_mode().unwrap();

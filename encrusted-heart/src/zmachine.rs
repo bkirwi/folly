@@ -1524,21 +1524,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.process_result(&instr, 0);
     }
 
-    // Web UI only
-    #[allow(dead_code)]
-    pub fn restore(&mut self, data: &str) {
-        let state = base64::decode(&data);
-
-        // cancel restore (sending an empty string or if base64 decode fails)
-        if data.is_empty() || state.is_err() {
-            let instr = self.paused_instr.take().unwrap();
-            self.process_result(&instr, 0);
-        } else {
-            self.restore_state(state.unwrap().as_slice());
-            // TODO: should we be doing this in any other circumstances?
-            self.set_dynamic_headers();
-            self.process_restore_result();
-        }
+    pub fn restore(&mut self, data: &[u8]) {
+        self.restore_state(data);
+        self.set_dynamic_headers();
+        self.process_restore_result();
     }
 
     // Web UI only

@@ -452,8 +452,7 @@ impl Session {
     pub fn restore(&mut self, path: &Path) -> io::Result<()> {
         let save_data = fs::read(path)?;
         eprintln!("Restoring from save at {}", path.display());
-        let based = base64::encode(&save_data);
-        self.zvm.restore(&based);
+        self.zvm.restore(&save_data);
         Ok(())
     }
 

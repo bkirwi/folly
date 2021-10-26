@@ -10,11 +10,8 @@ use std::path::PathBuf;
 use std::process;
 use std::str;
 
-use base64;
 use enum_primitive::FromPrimitive;
-use rand;
 use rand::{Rng, SeedableRng};
-use serde_json;
 use serde::Serialize;
 
 use crate::traits::{Window, UI, TextStyle};
@@ -41,7 +38,7 @@ enum ZStringState {
     Tenbit2(u8),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct Object {
     number: u16,
     name: String,

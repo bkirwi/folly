@@ -35,21 +35,12 @@ use rusttype::{Font, Scale};
 use serde::{Deserialize, Serialize};
 use itertools::{Itertools, Position};
 
-use crate::options::Options;
-use crate::traits::{UI, BaseUI, BaseOutput, Window, TextStyle};
-use crate::zmachine::{Zmachine, Step};
+use encrusted_heart::options::Options;
+use encrusted_heart::traits::{UI, BaseUI, BaseOutput, Window, TextStyle};
+use encrusted_heart::zmachine::{Zmachine, Step};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use regex::Regex;
-
-mod buffer;
-mod frame;
-mod instruction;
-mod options;
-mod quetzal;
-mod traits;
-mod zmachine;
-
 
 /*
 For inconsolata, height / width = 0.4766444.
@@ -74,13 +65,13 @@ const PUNCTUATION: &str = " .,\"";
 
 lazy_static! {
     static ref ROMAN: Font<'static> =
-        Font::from_bytes(include_bytes!("../../rm-fonts/static/EBGaramond-Regular.ttf").as_ref()).unwrap();
+        Font::from_bytes(include_bytes!("../fonts/EBGaramond-Regular.ttf").as_ref()).unwrap();
     static ref ITALIC: Font<'static> =
-        Font::from_bytes(include_bytes!("../../rm-fonts/static/EBGaramond-Italic.ttf").as_ref()).unwrap();
+        Font::from_bytes(include_bytes!("../fonts/EBGaramond-Italic.ttf").as_ref()).unwrap();
     static ref BOLD: Font<'static> =
-        Font::from_bytes(include_bytes!("../../rm-fonts/static/EBGaramond-Bold.ttf").as_ref()).unwrap();
+        Font::from_bytes(include_bytes!("../fonts/EBGaramond-Bold.ttf").as_ref()).unwrap();
     static ref MONOSPACE: Font<'static> =
-        Font::from_bytes(include_bytes!("../../rm-fonts/static/Inconsolata/Inconsolata-Regular.ttf").as_ref()).unwrap();
+        Font::from_bytes(include_bytes!("../fonts/Inconsolata-Regular.ttf").as_ref()).unwrap();
 }
 
 impl Dict {
@@ -1025,12 +1016,12 @@ fn main() {
 
     let font_bytes =
         fs::read("/usr/share/fonts/ttf/ebgaramond/EBGaramond-VariableFont_wght.ttf").unwrap();
-    
+
     let fonts = Fonts {
-        roman: Font::from_bytes(include_bytes!("../../rm-fonts/static/EBGaramond-Regular.ttf").as_ref()).unwrap(),
-        italic: Font::from_bytes(include_bytes!("../../rm-fonts/static/EBGaramond-Italic.ttf").as_ref()).unwrap(),
-        bold: Font::from_bytes(include_bytes!("../../rm-fonts/static/EBGaramond-Bold.ttf").as_ref()).unwrap(),
-        monospace: Font::from_bytes(include_bytes!("../../rm-fonts/static/Inconsolata/Inconsolata-Regular.ttf").as_ref()).unwrap(),
+        roman: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Regular.ttf").as_ref()).unwrap(),
+        italic: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Italic.ttf").as_ref()).unwrap(),
+        bold: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Bold.ttf").as_ref()).unwrap(),
+        monospace: Font::from_bytes(include_bytes!("../fonts/Inconsolata-Regular.ttf").as_ref()).unwrap(),
     };
 
     let mut app = armrest::app::App::new();

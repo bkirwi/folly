@@ -1,31 +1,24 @@
 [package]
 authors = ["Sterling DeMille <sterlingdemille+github@gmail.com>"]
-name = "encrusted"
+name = "encrusted-heart"
 version = "1.1.0"
 description = "A z-machine (interpreter) for Infocom-era text adventure games"
 repository = "https://github.com/demille/encrusted"
 readme = "README.md"
 license = "MIT"
-edition = "2018"
-
-[workspace]
-members = ["encrusted-heart"]
+edition = "2015"
 
 [dependencies]
 base64 = "0.10.1"
-encrusted-heart = { path = "encrusted-heart" }
 enum_primitive = "0.1.1"
 rand = "0.4.2"
 serde = "1.0.88"
 serde_derive = "1.0.88"
 serde_json = "1.0.38"
-clap = "2.32.0"
-lazy_static = "1.2.0"
+
+[dev-dependencies]
 regex = "1.1.0"
 itertools = "0.10.1"
 termion = "1.5.6"
-armrest = { path = "../armrest" }
-libremarkable = "0.5.0"
-# libremarkable = { path = "../libremarkable" }
-rusttype = "0.8.2"
-chrono = "0.4.19"
+clap = "2.32.0"
+lazy_static = "1.2.0"

@@ -379,6 +379,7 @@ dependencies = [
  "base64",
  "chrono",
  "clap",
+ "encrusted-heart",
  "enum_primitive",
  "itertools 0.10.1",
  "lazy_static",
@@ -390,7 +391,23 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "termion",
- "wasm-glue",
+]
+
+[[package]]
+name = "encrusted-heart"
+version = "1.1.0"
+dependencies = [
+ "base64",
+ "clap",
+ "enum_primitive",
+ "itertools 0.10.1",
+ "lazy_static",
+ "rand 0.4.2",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "termion",
 ]
 
 [[package]]
@@ -1511,12 +1528,6 @@ name = "wasi"
 version = "0.10.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a143597ca7c7793eff794def352d41792a93c481eb1042423ff7ff72ba2c31f"
-
-[[package]]
-name = "wasm-glue"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ba38b8ce66d733de7eeba00afc18f47fbc1bbb1d489bcdb53fb8e8691e5d4b9"
 
 [[package]]
 name = "which"

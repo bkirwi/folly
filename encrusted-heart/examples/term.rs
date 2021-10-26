@@ -3,6 +3,8 @@ extern crate clap;
 extern crate rand;
 extern crate regex;
 extern crate serde_json;
+extern crate encrusted_heart;
+extern crate termion;
 
 #[macro_use]
 extern crate lazy_static;
@@ -21,18 +23,9 @@ use std::{process, io, mem};
 use clap::{App, Arg};
 use regex::Regex;
 
-mod buffer;
-mod frame;
-mod instruction;
-mod options;
-mod quetzal;
-mod traits;
-mod ui_terminal;
-mod zmachine;
-
-use crate::options::Options;
-use crate::traits::{UI, BaseUI, BaseOutput};
-use crate::zmachine::{Zmachine, Step};
+use encrusted_heart::options::Options;
+use encrusted_heart::traits::{UI, BaseUI, BaseOutput};
+use encrusted_heart::zmachine::{Zmachine, Step};
 use termion::raw::IntoRawMode;
 use termion::input::TermRead;
 use termion::event::Key;

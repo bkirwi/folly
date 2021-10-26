@@ -1,7 +1,6 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fmt;
-use std::fmt::Write as FmtWrite;
 
 use std::str;
 
@@ -370,25 +369,21 @@ impl<ZUI> Zmachine<ZUI> {
     }
 
     fn write_variable(&mut self, index: u8, value: u16) {
-        #[allow(unreachable_patterns)]
         match index {
             0 => self.stack_push(value),
             1..=15 => self.write_local(index - 1, value),
-            16..=255 => self.write_global(index - 16, value),
-            _ => unreachable!(),
+            _ => self.write_global(index - 16, value),
         }
     }
 
     fn write_indirect_variable(&mut self, index: u8, value: u16) {
-        #[allow(unreachable_patterns)]
         match index {
             0 => {
                 self.stack_pop();
                 self.stack_push(value);
             }
             1..=15 => self.write_local(index - 1, value),
-            16..=255 => self.write_global(index - 16, value),
-            _ => unreachable!(),
+            _ => self.write_global(index - 16, value),
         }
     }
 
@@ -814,7 +809,7 @@ impl<ZUI> Zmachine<ZUI> {
         None
     }
 
-    fn find_yourself(&self) -> Option<u16> {
+    pub fn find_yourself(&self) -> Option<u16> {
         self.find_object("cretin")
             .or_else(|| self.find_object("you"))
             .or_else(|| self.find_object("yourself"))

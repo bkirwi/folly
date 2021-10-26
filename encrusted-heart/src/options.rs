@@ -16,7 +16,7 @@ impl Options {
             log_instructions: false,
             rand_seed: [90, 111, 114, 107],
             dimensions: (80, 255), // 255 is "infinite scrolling"
-            undo_limit: 16
+            undo_limit: 16,
         }
     }
 }

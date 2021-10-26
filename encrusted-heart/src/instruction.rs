@@ -206,11 +206,13 @@ impl Instruction {
             OP1_141 => "print_paddr",
             OP1_142 => "load",
             // actually 2 different operations:
-            OP1_143 => if version < 4 {
-                "not"
-            } else {
-                "call_1n"
-            },
+            OP1_143 => {
+                if version < 4 {
+                    "not"
+                } else {
+                    "call_1n"
+                }
+            }
             OP0_176 => "rtrue",
             OP0_177 => "rfalse",
             OP0_178 => "print",
@@ -221,31 +223,37 @@ impl Instruction {
             OP0_183 => "restart",
             OP0_184 => "ret_popped",
             // actually 2 different operations:
-            OP0_185 => if version < 4 {
-                "pop"
-            } else {
-                "catch"
-            },
+            OP0_185 => {
+                if version < 4 {
+                    "pop"
+                } else {
+                    "catch"
+                }
+            }
             OP0_186 => "quit",
             OP0_187 => "new_line",
             OP0_188 => "show_status",
             OP0_189 => "verify",
             OP0_191 => "piracy",
             // "call" is the same as "call_vs" (name changed to remove ambiguity)
-            VAR_224 => if version < 4 {
-                "call"
-            } else {
-                "call_vs"
-            },
+            VAR_224 => {
+                if version < 4 {
+                    "call"
+                } else {
+                    "call_vs"
+                }
+            }
             VAR_225 => "storew",
             VAR_226 => "storeb",
             VAR_227 => "put_prop",
             // "sread", "aread", plain "read" are really all the same thing:
-            VAR_228 => if version < 4 {
-                "sread"
-            } else {
-                "aread"
-            },
+            VAR_228 => {
+                if version < 4 {
+                    "sread"
+                } else {
+                    "aread"
+                }
+            }
             VAR_229 => "print_char",
             VAR_230 => "print_num",
             VAR_231 => "random",
@@ -301,7 +309,8 @@ impl Instruction {
             EXT_1027 => "make_menu",
             EXT_1028 => "picture_table",
             EXT_1029 => "buffer_screen",
-        }.to_string()
+        }
+        .to_string()
     }
 }
 

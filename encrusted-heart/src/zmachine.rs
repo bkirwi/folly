@@ -1,4 +1,3 @@
-
 use std::boxed::Box;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
@@ -14,20 +13,19 @@ use enum_primitive::FromPrimitive;
 use rand::{Rng, SeedableRng};
 use serde::Serialize;
 
-use crate::traits::{Window, UI, TextStyle};
-use crate::options::Options;
 use crate::buffer::Buffer;
 use crate::frame::Frame;
-use crate::quetzal::QuetzalSave;
 use crate::instruction::*;
+use crate::options::Options;
+use crate::quetzal::QuetzalSave;
+use crate::traits::{TextStyle, Window, UI};
 use std::cmp::Ordering;
 
 const DEFAULT_UNICODE_TABLE: &[char] = &[
-    'ä', 'ö', 'ü', 'Ä', 'Ö', 'Ü', 'ß', '»', '«', 'ë', 'ï', 'ÿ', 'Ë', 'Ï', 'á', 'é',
-    'í', 'ó', 'ú', 'ý', 'Á', 'É', 'Í', 'Ó', 'Ú', 'Ý', 'à', 'è', 'ì', 'ò', 'ù', 'À',
-    'È', 'Ì', 'Ò', 'Ù', 'â', 'ê', 'î', 'ô', 'û', 'Â', 'Ê', 'Î', 'Ô', 'Û', 'å', 'Å',
-    'ø', 'Ø', 'ã', 'ñ', 'õ', 'Ã', 'Ñ', 'Õ', 'æ', 'Æ', 'ç', 'Ç', 'þ', 'ð', 'Þ', 'Ð',
-    '£', 'œ', 'Œ', '¡', '¿'
+    'ä', 'ö', 'ü', 'Ä', 'Ö', 'Ü', 'ß', '»', '«', 'ë', 'ï', 'ÿ', 'Ë', 'Ï', 'á', 'é', 'í', 'ó', 'ú',
+    'ý', 'Á', 'É', 'Í', 'Ó', 'Ú', 'Ý', 'à', 'è', 'ì', 'ò', 'ù', 'À', 'È', 'Ì', 'Ò', 'Ù', 'â', 'ê',
+    'î', 'ô', 'û', 'Â', 'Ê', 'Î', 'Ô', 'Û', 'å', 'Å', 'ø', 'Ø', 'ã', 'ñ', 'õ', 'Ã', 'Ñ', 'Õ', 'æ',
+    'Æ', 'ç', 'Ç', 'þ', 'ð', 'Þ', 'Ð', '£', 'œ', 'Œ', '¡', '¿',
 ];
 
 #[derive(Debug)]
@@ -260,10 +258,21 @@ impl<ZUI> Zmachine<ZUI> {
         if alphabet_addr == 0 {
             Zmachine::<()>::default_alphabet()
         } else {
-            let A0 = format!(" .....{}", str::from_utf8(memory.read(alphabet_addr, 26)).expect("bad alphabet table A0!"));
-            let A1 = format!(" .....{}", str::from_utf8(memory.read(alphabet_addr + 26, 26)).expect("bad alphabet table A1!"));
+            let A0 = format!(
+                " .....{}",
+                str::from_utf8(memory.read(alphabet_addr, 26)).expect("bad alphabet table A0!")
+            );
+            let A1 = format!(
+                " .....{}",
+                str::from_utf8(memory.read(alphabet_addr + 26, 26))
+                    .expect("bad alphabet table A1!")
+            );
             // First two characters are ignored and accounted for in our padding.
-            let A2 = format!(" ......\n{}", str::from_utf8(memory.read(alphabet_addr + 26 + 26 + 2, 24)).expect("Bad alphabet table A2!"));
+            let A2 = format!(
+                " ......\n{}",
+                str::from_utf8(memory.read(alphabet_addr + 26 + 26 + 2, 24))
+                    .expect("Bad alphabet table A2!")
+            );
 
             [
                 Zmachine::<()>::to_alphabet_entry(&A0),
@@ -423,9 +432,7 @@ impl<ZUI> Zmachine<ZUI> {
             let mut step = |zchar: u8| {
                 state = match (zchar, &state) {
                     // the next zchar will be an abbrev index
-                    (zch, &Alphabet(_)) if zch >= 1 && zch <= 3 => {
-                        Abbrev(zch)
-                    }
+                    (zch, &Alphabet(_)) if zch >= 1 && zch <= 3 => Abbrev(zch),
                     // shift character for the next zchar
                     (4, &Alphabet(_)) => Alphabet(1),
                     (5, &Alphabet(_)) => Alphabet(2),
@@ -442,7 +449,11 @@ impl<ZUI> Zmachine<ZUI> {
                         // NB: recursive abbreviations are banned by the spec, but some game files clearly use them!
                         // Instead of banning them entirely, check that we're not in an infinite loop.
                         let index = (num - 1) * 32 + zchar;
-                        assert!(!abbreviation_stack.contains(&index), "Recursive abbreviation at {}", index);
+                        assert!(
+                            !abbreviation_stack.contains(&index),
+                            "Recursive abbreviation at {}",
+                            index
+                        );
                         abbreviation_stack.push(index);
                         let abbrev = self.get_abbrev(index, abbreviation_stack);
                         abbreviation_stack.pop();
@@ -829,7 +840,11 @@ impl<ZUI> Zmachine<ZUI> {
         let byte = self.memory.read_byte(addr);
         let bit = attr % 8;
 
-        if byte & (128 >> bit) != 0 { 1 } else { 0 }
+        if byte & (128 >> bit) != 0 {
+            1
+        } else {
+            0
+        }
     }
 
     fn set_attr(&mut self, object: u16, attr: u16) {
@@ -880,7 +895,9 @@ impl<ZUI> Zmachine<ZUI> {
 
                 if header & 0b1000_0000 != 0 {
                     len = self.memory.read_byte(addr + 1) & 0b0011_1111;
-                    if len == 0 { len = 64; } // Z-Machine standard section 12.4.2.1.1
+                    if len == 0 {
+                        len = 64;
+                    } // Z-Machine standard section 12.4.2.1.1
 
                     value_addr = addr + 2; // 2 byte header
                 } else {
@@ -938,7 +955,11 @@ impl<ZUI> Zmachine<ZUI> {
     fn get_prop_addr(&self, object: u16, property_number: u16) -> usize {
         let prop = self.find_prop(object, property_number);
 
-        if prop.num != 0 { prop.addr } else { 0 }
+        if prop.num != 0 {
+            prop.addr
+        } else {
+            0
+        }
     }
 
     fn get_prop_len(&self, prop_data_addr: usize) -> u8 {
@@ -956,7 +977,11 @@ impl<ZUI> Zmachine<ZUI> {
             // This is already the *second* header byte.
             let len = prop_header & 0b0011_1111;
 
-            if len == 0 { 64 } else { len }
+            if len == 0 {
+                64
+            } else {
+                len
+            }
         } else if prop_header & 0b0100_0000 != 0 {
             2
         } else {
@@ -1339,8 +1364,9 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (OP0_191, &[]) => Some(1), // piracy
             (VAR_231, &[range]) => Some(self.do_random(range)),
             (VAR_233, &[var]) if self.version == 6 => Some(self.do_pull(var)),
-            (VAR_247, &[x, table, len, ..]) =>
-                Some(self.do_scan_table(x, table, len, args.get(3).copied())),
+            (VAR_247, &[x, table, len, ..]) => {
+                Some(self.do_scan_table(x, table, len, args.get(3).copied()))
+            }
             (VAR_248, &[val]) if self.version >= 5 => Some(self.do_not(val)),
             (VAR_255, &[num]) => Some(self.do_check_arg_count(num)),
             (EXT_1002, &[num, places]) => Some(self.do_log_shift(num, places)),
@@ -1366,7 +1392,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (OP2_14, &[obj, dest]) => self.do_insert_obj(obj, dest),
             (OP2_25, &[addr, arg]) => self.do_call(instr, addr, &[arg]), // call_2s
             (OP2_26, &[addr, arg]) => self.do_call(instr, addr, &[arg]), // call_2n
-            (OP2_27, _) => {}, // set_colour... ignored!
+            (OP2_27, _) => {}                                            // set_colour... ignored!
             (OP2_28, &[value, frame]) => self.do_throw(value, frame),
             (OP1_133, &[var]) => self.do_inc(var),
             (OP1_134, &[var]) => self.do_dec(var),
@@ -1382,7 +1408,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (OP0_177, _) => self.do_rfalse(),
             (OP0_178, _) => self.do_print(instr),
             (OP0_179, _) => self.do_print_ret(instr),
-            (OP0_180, _) => {},
+            (OP0_180, _) => {}
             // (OP0_181, _) => self.do_save(instr),
             // (OP0_182, _) => self.do_restore(instr),
             (OP0_183, _) => self.do_restart(),
@@ -1398,7 +1424,9 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_229, &[chr]) => self.do_print_char(chr),
             (VAR_230, &[num]) => self.do_print_num(num),
             (VAR_232, &[value]) => self.do_push(value),
-            (VAR_233, &[var]) => { self.do_pull(var); }
+            (VAR_233, &[var]) => {
+                self.do_pull(var);
+            }
             (VAR_234, &[lines]) => self.do_split_window(lines),
             (VAR_235, &[window]) => self.do_set_window(window),
             (VAR_236, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vs2
@@ -1417,13 +1445,18 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_250, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn2
             (VAR_251, &[text_addr, parse_addr]) => self.do_tokenise(text_addr, parse_addr),
             (VAR_253, &[first, second, size]) => self.do_copy_table(first, second, size),
-            (VAR_254, _) => self.do_print_table(args[0], args[1], args.get(2).copied(), args.get(3).copied()),
+            (VAR_254, _) => {
+                self.do_print_table(args[0], args[1], args.get(2).copied(), args.get(3).copied())
+            }
             (EXT_1010, &[]) => self.do_restore_undo(),
             (EXT_1011, &[code_point]) => self.do_print_unicode(code_point),
 
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",
-                instr.name, instr.opcode, args.len(), self.pc
+                instr.name,
+                instr.opcode,
+                args.len(),
+                self.pc
             ),
         }
 
@@ -1619,9 +1652,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // (passes control back JS afterwards)
     #[allow(dead_code)]
     pub fn handle_input(&mut self, input: String) {
-        let instr = self.paused_instr.take().expect(
-            "Can't handle input, no paused instruction to resume",
-        );
+        let instr = self
+            .paused_instr
+            .take()
+            .expect("Can't handle input, no paused instruction to resume");
         // explicitly handle read (need to get args first)
         let args = self.get_arguments(instr.operands.as_slice());
         self.do_sread_second(args[0], args[1], input);
@@ -1629,17 +1663,19 @@ impl<ZUI: UI> Zmachine<ZUI> {
     }
 
     pub fn handle_read_char(&mut self, input: u8) {
-        let instr = self.paused_instr.take().expect(
-            "Can't handle input, no paused instruction to resume",
-        );
+        let instr = self
+            .paused_instr
+            .take()
+            .expect("Can't handle input, no paused instruction to resume");
 
         self.process_result(&instr, input as u16);
     }
 
     pub fn handle_save_result(&mut self, successful: bool) {
-        let instr = self.paused_instr.take().expect(
-            "Can't handle input, no paused instruction to resume",
-        );
+        let instr = self
+            .paused_instr
+            .take()
+            .expect("Can't handle input, no paused instruction to resume");
 
         self.process_result(&instr, if successful { 1 } else { 0 });
     }
@@ -1647,13 +1683,13 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // NB: since most restores completely blow away the state,
     // this should only be called when a restore fails.
     pub fn handle_restore_result(&mut self) {
-        let instr = self.paused_instr.take().expect(
-            "Can't handle input, no paused instruction to resume",
-        );
+        let instr = self
+            .paused_instr
+            .take()
+            .expect("Can't handle input, no paused instruction to resume");
 
         self.process_result(&instr, 0);
     }
-
 
     // Web UI only
     #[allow(dead_code)]
@@ -1721,17 +1757,29 @@ impl<ZUI: UI> Zmachine<ZUI> {
 impl<ZUI: UI> Zmachine<ZUI> {
     // OP2_1
     fn do_je(&self, a: u16, values: &[u16]) -> u16 {
-        if values.iter().any(|x| a == *x) { 1 } else { 0 }
+        if values.iter().any(|x| a == *x) {
+            1
+        } else {
+            0
+        }
     }
 
     // OP2_2
     fn do_jl(&self, a: u16, b: u16) -> u16 {
-        if (a as i16) < (b as i16) { 1 } else { 0 }
+        if (a as i16) < (b as i16) {
+            1
+        } else {
+            0
+        }
     }
 
     // OP2_3
     fn do_jg(&self, a: u16, b: u16) -> u16 {
-        if (a as i16) > (b as i16) { 1 } else { 0 }
+        if (a as i16) > (b as i16) {
+            1
+        } else {
+            0
+        }
     }
 
     // OP2_4
@@ -1741,7 +1789,11 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
         self.write_indirect_variable(var as u8, after as u16);
 
-        if after < (value as i16) { 1 } else { 0 }
+        if after < (value as i16) {
+            1
+        } else {
+            0
+        }
     }
 
     // OP2_5
@@ -1751,17 +1803,29 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
         self.write_indirect_variable(var as u8, after as u16);
 
-        if after > (value as i16) { 1 } else { 0 }
+        if after > (value as i16) {
+            1
+        } else {
+            0
+        }
     }
 
     // OP2_6
     fn do_jin(&self, obj1: u16, obj2: u16) -> u16 {
-        if self.get_parent(obj1) == obj2 { 1 } else { 0 }
+        if self.get_parent(obj1) == obj2 {
+            1
+        } else {
+            0
+        }
     }
 
     // OP2_7
     fn do_test(&self, bitmap: u16, flags: u16) -> u16 {
-        if bitmap & flags == flags { 1 } else { 0 }
+        if bitmap & flags == flags {
+            1
+        } else {
+            0
+        }
     }
 
     // OP2_8
@@ -1862,7 +1926,11 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     // OP1_128
     fn do_jz(&self, a: u16) -> u16 {
-        if a == 0 { 1 } else { 0 }
+        if a == 0 {
+            1
+        } else {
+            0
+        }
     }
 
     // OP1_129
@@ -2194,8 +2262,12 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // VAR_237
     fn do_erase_window(&mut self, window: u16) {
         match window as i16 {
-            0 => { self.ui.erase_window(Window::Lower); }
-            1 => { self.ui.erase_window(Window::Upper); }
+            0 => {
+                self.ui.erase_window(Window::Lower);
+            }
+            1 => {
+                self.ui.erase_window(Window::Upper);
+            }
             -1 => {
                 self.ui.split_window(0);
                 self.ui.erase_window(Window::Lower);
@@ -2232,7 +2304,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             }
             2 => {
                 // We don't keep a transcript, so, ignore this.
-            },
+            }
             3 => {
                 if enabled {
                     let table_addr = args[0] as usize;
@@ -2242,10 +2314,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
                         self.memory.write_word(start, (end - start - 2) as u16);
                     }
                 }
-            },
+            }
             4 => {
                 // This is another type of transcript; ignore it too.
-            },
+            }
             _ => panic!("Illegal output stream number! {}", number),
         }
     }
@@ -2325,25 +2397,26 @@ impl<ZUI: UI> Zmachine<ZUI> {
             return;
         }
 
-        let is_forward = if force_forward {
-            true
-        } else {
-            first > second
-        };
+        let is_forward = if force_forward { true } else { first > second };
 
         if is_forward {
             for i in 0..count {
-                self.memory.write_byte(second + i, self.memory.read_byte(first + i));
+                self.memory
+                    .write_byte(second + i, self.memory.read_byte(first + i));
             }
         } else {
             for i in (0..count).rev() {
-                self.memory.write_byte(second + i, self.memory.read_byte(first + i));
+                self.memory
+                    .write_byte(second + i, self.memory.read_byte(first + i));
             }
         };
     }
 
     fn do_print_table(&mut self, zstring: u16, width: u16, height: Option<u16>, skip: Option<u16>) {
-        assert!(height.is_none() && skip.is_none(), "Full printing of tables is not yet implemented!");
+        assert!(
+            height.is_none() && skip.is_none(),
+            "Full printing of tables is not yet implemented!"
+        );
 
         let data = self.memory.read(zstring as usize, width as usize).to_vec();
         if let Ok(string) = str::from_utf8(&data) {
@@ -2360,7 +2433,11 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 .arg_count,
         );
 
-        if count >= num { 1 } else { 0 }
+        if count >= num {
+            1
+        } else {
+            0
+        }
     }
 
     // EXT_1002
@@ -2542,7 +2619,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
             String::new()
         };
 
-        self.ui.debug(&format!("{} (len: {})\n", short_name, text_length));
+        self.ui
+            .debug(&format!("{} (len: {})\n", short_name, text_length));
     }
 
     fn get_object_number(&self, input: &str) -> u16 {
@@ -2611,7 +2689,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
             }
         }
 
-        self.ui.debug(&format!("{} ({})\n{:?}", name, num, attributes));
+        self.ui
+            .debug(&format!("{} ({})\n{:?}", name, num, attributes));
     }
 
     pub fn debug_object_details(&self, obj_num: u16) -> String {
@@ -2721,28 +2800,36 @@ impl<ZUI: UI> Zmachine<ZUI> {
     }
 
     fn debug_teleport(&mut self, input: &str) {
-        let you = self.find_yourself().expect("Can't find you in the object tree");
+        let you = self
+            .find_yourself()
+            .expect("Can't find you in the object tree");
         let num = self.get_object_number(input);
 
         if num == 0 {
             self.ui.debug("I can't find that room...\n");
             return;
         } else {
-            self.ui.debug("Zzzap! Somehow you are in a different place...\n");
+            self.ui
+                .debug("Zzzap! Somehow you are in a different place...\n");
         }
 
         self.insert_obj(you, num);
     }
 
     fn debug_steal(&mut self, input: &str) {
-        let you = self.find_yourself().expect("Can't find you in the object tree");
+        let you = self
+            .find_yourself()
+            .expect("Can't find you in the object tree");
         let num = self.get_object_number(input);
 
         if num == 0 {
             self.ui.debug("I can't find that object...\n");
             return;
         } else {
-            self.ui.debug(&format!("Zzzing! Somehow you are holding the {}...\n", input));
+            self.ui.debug(&format!(
+                "Zzzing! Somehow you are holding the {}...\n",
+                input
+            ));
         }
 
         self.insert_obj(num, you);
@@ -2775,13 +2862,20 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let first_instr = self.decode_instruction(read.position());
         let mut set: HashSet<Instruction> = HashSet::new();
 
-        fn follow<ZUI: UI>(zvm: &Zmachine<ZUI>, set: &mut HashSet<Instruction>, instr: Instruction) {
+        fn follow<ZUI: UI>(
+            zvm: &Zmachine<ZUI>,
+            set: &mut HashSet<Instruction>,
+            instr: Instruction,
+        ) {
             if set.contains(&instr) {
                 return;
             }
 
             let branch = match instr.branch {
-                Some(Branch { address: Some(addr), .. }) => Some(addr),
+                Some(Branch {
+                    address: Some(addr),
+                    ..
+                }) => Some(addr),
                 _ => None,
             };
 

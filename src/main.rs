@@ -4,43 +4,38 @@ extern crate enum_primitive;
 #[macro_use]
 extern crate lazy_static;
 
-use std::{fs, io, mem, thread};
 use std::borrow::Borrow;
 use std::collections::BTreeSet;
-
+use std::{fs, io, mem, thread};
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 
-
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, mpsc};
-
+use std::sync::{mpsc, Arc};
 
 use armrest::{ml, ui};
 
 use armrest::ink::Ink;
 use armrest::ml::{LanguageModel, Recognizer, Spline};
-use armrest::ui::{Action, BoundingBox, Frame, Side, Stack, Text, Widget, Handlers, Void};
+use armrest::ui::{Action, BoundingBox, Frame, Handlers, Side, Stack, Text, Void, Widget};
 
 use libremarkable::cgmath::{Point2, Vector2};
 
-use libremarkable::framebuffer::common::{color, DISPLAYWIDTH, DISPLAYHEIGHT};
+use libremarkable::framebuffer::common::{color, DISPLAYHEIGHT, DISPLAYWIDTH};
 
 use libremarkable::framebuffer::FramebufferDraw;
 
-
-
-use rusttype::{Font};
-use serde::{Deserialize, Serialize};
 use itertools::{Itertools, Position};
+use rusttype::Font;
+use serde::{Deserialize, Serialize};
 
 use encrusted_heart::options::Options;
-use encrusted_heart::traits::{UI, BaseUI, BaseOutput, TextStyle};
-use encrusted_heart::zmachine::{Zmachine, Step};
-use std::cell::{Cell};
-use std::rc::Rc;
+use encrusted_heart::traits::{BaseOutput, BaseUI, TextStyle, UI};
+use encrusted_heart::zmachine::{Step, Zmachine};
 use regex::Regex;
+use std::cell::Cell;
+use std::rc::Rc;
 
 /*
 For inconsolata, height / width = 0.4766444.
@@ -86,7 +81,10 @@ impl Dict {
     const INVALID: f32 = 0.001;
 
     fn contains_prefix(&self, prefix: &String) -> bool {
-        self.0.range::<String, _>(prefix..).next().map_or(false, |c| c.starts_with(prefix))
+        self.0
+            .range::<String, _>(prefix..)
+            .next()
+            .map_or(false, |c| c.starts_with(prefix))
     }
 }
 
@@ -99,8 +97,10 @@ impl LanguageModel for &Dict {
             return Dict::INVALID;
         }
 
-        let word_start =
-            input.rfind(|c| PUNCTUATION.contains(c)).map(|i| i + 1).unwrap_or(0);
+        let word_start = input
+            .rfind(|c| PUNCTUATION.contains(c))
+            .map(|i| i + 1)
+            .unwrap_or(0);
 
         let prefix = &input[word_start..];
 
@@ -111,14 +111,22 @@ impl LanguageModel for &Dict {
 
         // If the current character is punctuation, we check that the prefix is a valid word
         if PUNCTUATION.contains(ch) {
-            return if words.contains(prefix) || prefix.is_empty() { Dict::VALID } else { Dict::INVALID };
+            return if words.contains(prefix) || prefix.is_empty() {
+                Dict::VALID
+            } else {
+                Dict::INVALID
+            };
         }
 
         // Assume all numbers are valid inputs. (Names that include them normally don't put them in the dictionary.)
         // TODO: think about what happens if dictionary words contain digits.
         if ch.is_ascii_digit() {
             let starts_with_digit = prefix.chars().next().map_or(true, |c| c.is_ascii_digit());
-            return if starts_with_digit { Dict::VALID } else { Dict::INVALID };
+            return if starts_with_digit {
+                Dict::VALID
+            } else {
+                Dict::INVALID
+            };
         }
 
         let mut prefix_string = prefix.to_string();
@@ -161,7 +169,7 @@ enum Element {
         active: Rc<Cell<usize>>,
         prompt: Text<Msg>,
         area: ui::InputArea<Msg>,
-        message: Msg
+        message: Msg,
     },
     File {
         big_text: Text,
@@ -172,11 +180,16 @@ enum Element {
 }
 
 impl Element {
-    fn file_display(font: &Font<'static>, big_text: &str, path_str: &str, msg: Option<Msg>) -> Element {
+    fn file_display(
+        font: &Font<'static>,
+        big_text: &str,
+        path_str: &str,
+        msg: Option<Msg>,
+    ) -> Element {
         Element::File {
             big_text: Text::literal(LINE_HEIGHT * 4 / 3, &font, &big_text),
             small_text: Text::literal(LINE_HEIGHT * 2 / 3, &font, &path_str),
-            message: msg
+            message: msg,
         }
     }
 }
@@ -201,7 +214,13 @@ impl Widget for Element {
 
         let mut prompt_frame = frame.split_off(Side::Left, margin_width);
         match self {
-            Element::Input { id, active, prompt, message, ..} if *id == active.get() => {
+            Element::Input {
+                id,
+                active,
+                prompt,
+                message,
+                ..
+            } if *id == active.get() => {
                 handlers.push(&prompt_frame, message.clone());
                 prompt_frame.split_off(Side::Right, 12);
                 prompt.render_placed(handlers, prompt_frame, 1.0, 0.5);
@@ -236,11 +255,17 @@ impl Widget for Element {
             Element::Input { area, .. } => {
                 area.render(handlers, frame);
             }
-            Element::File { big_text, small_text , message } => {
+            Element::File {
+                big_text,
+                small_text,
+                message,
+            } => {
                 if let Some(m) = message {
                     handlers.push(&frame, m.clone());
                 }
-                big_text.discard().render_split(handlers, &mut frame, Side::Top, 0.0);
+                big_text
+                    .discard()
+                    .render_split(handlers, &mut frame, Side::Top, 0.0);
                 small_text.void().render(handlers, frame);
             }
             Element::UpperWindow(lines) => {
@@ -253,7 +278,7 @@ impl Widget for Element {
 }
 
 struct Header {
-    lines: Vec<Text>
+    lines: Vec<Text>,
 }
 
 impl Widget for Header {
@@ -277,11 +302,13 @@ struct Page {
 }
 
 impl Page {
-
     pub fn new() -> Page {
         Page {
-            contents: vec![(Rc::new(Header { lines: vec![] }), Stack::new(Vector2::new(DISPLAYWIDTH as i32, TEXT_AREA_HEIGHT)))],
-            page_number: 0
+            contents: vec![(
+                Rc::new(Header { lines: vec![] }),
+                Stack::new(Vector2::new(DISPLAYWIDTH as i32, TEXT_AREA_HEIGHT)),
+            )],
+            page_number: 0,
         }
     }
 
@@ -305,7 +332,8 @@ impl Page {
         let space_remaining = self.remaining();
         if padding > space_remaining.y {
             let (header, body) = self.contents.last().unwrap();
-            self.contents.push((header.clone(), Stack::new(body.size())))
+            self.contents
+                .push((header.clone(), Stack::new(body.size())))
         }
     }
 
@@ -318,13 +346,17 @@ impl Page {
         let height = LINE_HEIGHT.min(self.remaining().y);
         let pad_previous_element = match self.contents.last().unwrap().1.last() {
             Some(Element::Line(..)) => true,
-            Some(Element::File {..}) => true,
+            Some(Element::File { .. }) => true,
             _ => false,
         };
         if height == 0 || !pad_previous_element {
             return;
         }
-        self.contents.last_mut().unwrap().1.push(Element::Break(height));
+        self.contents
+            .last_mut()
+            .unwrap()
+            .1
+            .push(Element::Break(height));
     }
 
     fn push_element(&mut self, element: Element) {
@@ -342,9 +374,10 @@ impl Page {
         let remaining = page.remaining().y;
         if remaining > LINE_HEIGHT * 2 {
             self.push_advance_space();
-            self.push_element(
-                Element::Line(true, Text::literal(LINE_HEIGHT, &*ROMAN, SECTION_BREAK))
-            );
+            self.push_element(Element::Line(
+                true,
+                Text::literal(LINE_HEIGHT, &*ROMAN, SECTION_BREAK),
+            ));
             self.push_advance_space();
         } else {
             self.maybe_new_page(LINE_HEIGHT * 2);
@@ -364,7 +397,9 @@ impl Widget for Page {
 
         let (header, body) = &self.contents[self.page_number];
 
-        header.void().render_split(handlers, &mut frame, Side::Top, 0.5);
+        header
+            .void()
+            .render_split(handlers, &mut frame, Side::Top, 0.5);
         body.render_split(handlers, &mut frame, Side::Top, 0.5);
 
         frame.split_off(Side::Bottom, 100);
@@ -414,7 +449,6 @@ struct Session {
 }
 
 impl Session {
-
     pub fn restore(&mut self, path: &Path) -> io::Result<()> {
         let save_data = fs::read(path)?;
         eprintln!("Restoring from save at {}", path.display());
@@ -454,16 +488,15 @@ impl Session {
             " to return to where you left off."
         };
 
-        let lines =
-            Text::builder(LINE_HEIGHT, &self.font.roman)
-                .words("Select a saved game to restore from the list below, or ")
-                .font(&*BOLD, LINE_HEIGHT as f32)
-                .message(Msg::Resume)
-                .words("tap here")
-                .no_message()
-                .font(&*ROMAN, LINE_HEIGHT as f32)
-                .words( continue_message)
-                .wrap(LINE_LENGTH, true);
+        let lines = Text::builder(LINE_HEIGHT, &self.font.roman)
+            .words("Select a saved game to restore from the list below, or ")
+            .font(&*BOLD, LINE_HEIGHT as f32)
+            .message(Msg::Resume)
+            .words("tap here")
+            .no_message()
+            .font(&*ROMAN, LINE_HEIGHT as f32)
+            .words(continue_message)
+            .wrap(LINE_LENGTH, true);
 
         for widget in lines {
             page.push_element(Element::Line(false, widget));
@@ -477,7 +510,8 @@ impl Session {
 
             let meta_path = path.with_extension("meta");
             let meta: SaveMeta = if let Ok(data) = fs::read(&meta_path) {
-                serde_json::from_slice(&data).expect("Yikes: could not interpret meta file as valid save_meta data")
+                serde_json::from_slice(&data)
+                    .expect("Yikes: could not interpret meta file as valid save_meta data")
             } else {
                 SaveMeta {
                     location: "Unknown".to_string(),
@@ -486,15 +520,16 @@ impl Session {
                 }
             };
             let slug = match &meta.status_line {
-                Some(line) => {
-                    long_whitespace.replace_all(line.trim(), " - ").to_string()
-                },
+                Some(line) => long_whitespace.replace_all(line.trim(), " - ").to_string(),
                 None => format!("{} - {}", &meta.location, &meta.score_and_turn),
             };
 
-            page.push_element(
-                Element::file_display(&*ROMAN, &slug, &text, Some(Msg::Restore(path, meta)))
-            );
+            page.push_element(Element::file_display(
+                &*ROMAN,
+                &slug,
+                &text,
+                Some(Msg::Restore(path, meta)),
+            ));
         }
 
         self.restore = Some(page);
@@ -516,9 +551,10 @@ impl Session {
                     _ => {}
                 }
 
-                current_line.push(
-                    BaseOutput { content: positioned.into_inner().to_string(), ..output}
-                );
+                current_line.push(BaseOutput {
+                    content: positioned.into_inner().to_string(),
+                    ..output
+                });
             }
         }
 
@@ -597,47 +633,55 @@ impl Session {
 
         let status = if let Some((left, right)) = self.zvm.ui.status_line() {
             // 4 chars minimum padding + 8 for the score/time is reduces the chars available by 12
-            let text = format!(" {:width$}  {:8} ", left, right, width=(CHARS_PER_LINE-12));
+            let text = format!(
+                " {:width$}  {:8} ",
+                left,
+                right,
+                width = (CHARS_PER_LINE - 12)
+            );
             vec![Text::literal(30, &*MONOSPACE, &text)]
         } else {
             let upper_window = self.zvm.ui.upper_window();
 
             // The index of the first non-reverse-video line (ie. no longer the status)
-            let cut_index =
-                upper_window
-                    .iter()
-                    .position(|p| p.first().map_or(true, |(s, _)| !s.reverse_video()))
-                    .unwrap_or(upper_window.len());
+            let cut_index = upper_window
+                .iter()
+                .position(|p| p.first().map_or(true, |(s, _)| !s.reverse_video()))
+                .unwrap_or(upper_window.len());
 
             fn blank_line(line: &[(TextStyle, char)]) -> bool {
-                line.iter().all(|(s, c)| !s.reverse_video() & c.is_ascii_whitespace())
+                line.iter()
+                    .all(|(s, c)| !s.reverse_video() & c.is_ascii_whitespace())
             }
 
-            let first_nonblank =
-                upper_window[cut_index..].iter()
-                    .position(|l| !blank_line(l))
-                    .map_or(upper_window.len(), |i| i + cut_index);
+            let first_nonblank = upper_window[cut_index..]
+                .iter()
+                .position(|l| !blank_line(l))
+                .map_or(upper_window.len(), |i| i + cut_index);
 
-            let last_nonblank =
-                upper_window.iter()
-                    .rposition(|l| !blank_line(l))
-                    .map_or(0, |i| i + 1);
+            let last_nonblank = upper_window
+                .iter()
+                .rposition(|l| !blank_line(l))
+                .map_or(0, |i| i + 1);
 
             if first_nonblank < last_nonblank {
-                let remaining_lines =
-                    upper_window[first_nonblank..last_nonblank].iter()
-                        .map(|line| {
-                            let text: String = line.iter().take(CHARS_PER_LINE).map(|(_, c)| c).collect();
-                            Text::literal(MONOSPACE_LINE_HEIGHT, &*MONOSPACE, &text)
-                        })
-                        .collect::<Vec<_>>();
+                let remaining_lines = upper_window[first_nonblank..last_nonblank]
+                    .iter()
+                    .map(|line| {
+                        let text: String =
+                            line.iter().take(CHARS_PER_LINE).map(|(_, c)| c).collect();
+                        Text::literal(MONOSPACE_LINE_HEIGHT, &*MONOSPACE, &text)
+                    })
+                    .collect::<Vec<_>>();
 
-                self.pages.push_element(Element::UpperWindow(remaining_lines));
+                self.pages
+                    .push_element(Element::UpperWindow(remaining_lines));
             }
 
-            upper_window[..cut_index].iter()
+            upper_window[..cut_index]
+                .iter()
                 .map(|line| {
-                    let text: String = line.iter().take(CHARS_PER_LINE).map(|(_,c)| c).collect();
+                    let text: String = line.iter().take(CHARS_PER_LINE).map(|(_, c)| c).collect();
                     Text::literal(30, &*MONOSPACE, &text)
                 })
                 .collect::<Vec<_>>()
@@ -650,27 +694,27 @@ impl Session {
 
         match result {
             Step::Save(data) => {
-                self.pages.push_element(
-                    Element::Line(false, Text::line(LINE_HEIGHT, &self.font.roman, "Saving game..."))
-                );
+                self.pages.push_element(Element::Line(
+                    false,
+                    Text::line(LINE_HEIGHT, &self.font.roman, "Saving game..."),
+                ));
 
                 let now = chrono::offset::Local::now();
                 let save_file_name = format!("{}.sav", now.format("%Y-%m-%dT%H:%M:%S"));
                 let save_path = self.save_root.join(Path::new(&save_file_name));
                 fs::write(&save_path, data).unwrap();
 
-                let status_line =
-                    if let Some((left, right)) = self.zvm.ui.status_line() {
-                        Some(format!("{}  {}", left, right))
-                    } else {
-                        match self.zvm.ui.upper_window().get(0) {
-                            Some(header) => {
-                                let string = header.iter().map(|(_, c)| c).collect::<String>();
-                                Some(string)
-                            },
-                            None => None,
+                let status_line = if let Some((left, right)) = self.zvm.ui.status_line() {
+                    Some(format!("{}  {}", left, right))
+                } else {
+                    match self.zvm.ui.upper_window().get(0) {
+                        Some(header) => {
+                            let string = header.iter().map(|(_, c)| c).collect::<String>();
+                            Some(string)
                         }
-                    };
+                        None => None,
+                    }
+                };
 
                 let meta = SaveMeta {
                     location: "unknown".to_string(),
@@ -682,22 +726,20 @@ impl Session {
                 fs::write(&meta_path, meta_json).unwrap();
 
                 self.pages.maybe_new_page(LINE_HEIGHT * 3);
-                self.pages.push_element(Element::Break(LINE_HEIGHT/2));
+                self.pages.push_element(Element::Break(LINE_HEIGHT / 2));
                 self.pages.push_element(Element::file_display(
                     &self.font.roman,
                     &meta.status_line.unwrap_or("unknown".to_string()),
                     save_path.to_string_lossy().borrow(),
-                    None
+                    None,
                 ));
-                self.pages.push_element(Element::Break(LINE_HEIGHT/2));
+                self.pages.push_element(Element::Break(LINE_HEIGHT / 2));
 
                 eprintln!("Game successfully saved!");
                 self.zvm.handle_save_result(true);
                 self.advance()
             }
-            Step::Restore => {
-                result
-            }
+            Step::Restore => result,
             _ => {
                 // Add a prompt
                 self.pages.maybe_new_page(LINE_HEIGHT * 3);
@@ -716,9 +758,19 @@ impl Session {
                 let last_page = self.pages.contents.len() - 1;
                 let next_element = self.pages.contents.last().unwrap().1.len() - 1;
 
-                if let Some(Element::Input { message, area, .. }) = self.pages.contents.last_mut().unwrap().1.last_mut() {
-                    *area = ui::InputArea::new(Vector2::new(600, 88)).on_ink(Some(Msg::Input { page: last_page, line: next_element, margin: false }));
-                    *message = Msg::Input { page: last_page, line: next_element, margin: true};
+                if let Some(Element::Input { message, area, .. }) =
+                    self.pages.contents.last_mut().unwrap().1.last_mut()
+                {
+                    *area = ui::InputArea::new(Vector2::new(600, 88)).on_ink(Some(Msg::Input {
+                        page: last_page,
+                        line: next_element,
+                        margin: false,
+                    }));
+                    *message = Msg::Input {
+                        page: last_page,
+                        line: next_element,
+                        margin: true,
+                    };
                 }
 
                 result
@@ -737,13 +789,9 @@ struct Fonts {
 
 enum GameState {
     // No game loaded... choose from a list.
-    Init {
-        games: Page,
-    },
+    Init { games: Page },
     // We're in the middle of a game!
-    Playing {
-        session: Session,
-    },
+    Playing { session: Session },
 }
 
 struct Game {
@@ -829,7 +877,8 @@ impl Game {
         games.push_element(Element::Line(true, header));
         games.push_advance_space();
 
-        let game_vec = Game::list_games(root_dir).expect(&format!("Unable to list games in {:?}", root_dir));
+        let game_vec =
+            Game::list_games(root_dir).expect(&format!("Unable to list games in {:?}", root_dir));
 
         let welcome_message: String = if game_vec.is_empty() {
             format!(
@@ -840,30 +889,38 @@ impl Game {
             "Welcome to Encrusted! Choose a game from the list to get started.".to_string()
         };
 
-        for widget in Text::wrap(
-            LINE_HEIGHT,
-            font,
-            &welcome_message,
-            LINE_LENGTH,
-            true,
-        ) {
+        for widget in Text::wrap(LINE_HEIGHT, font, &welcome_message, LINE_LENGTH, true) {
             games.push_element(Element::Line(false, widget));
         }
         games.push_advance_space();
 
         for game_path in game_vec {
             let path_str = game_path.to_string_lossy().to_string();
-            let slug = game_path.file_stem().map_or("unknown".to_string(), |os| os.to_string_lossy().to_string());
+            let slug = game_path
+                .file_stem()
+                .map_or("unknown".to_string(), |os| os.to_string_lossy().to_string());
 
-            games.push_element(Element::file_display(font, &slug, &path_str, Some(Msg::LoadGame(game_path))));
+            games.push_element(Element::file_display(
+                font,
+                &slug,
+                &path_str,
+                Some(Msg::LoadGame(game_path)),
+            ));
         }
         games
     }
 
-    fn init(bounds: BoundingBox, fonts: Fonts, ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>, root_dir: PathBuf) -> Game {
+    fn init(
+        bounds: BoundingBox,
+        fonts: Fonts,
+        ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>,
+        root_dir: PathBuf,
+    ) -> Game {
         Game {
             bounds,
-            state: GameState::Init { games: Game::game_page(&fonts.roman, &root_dir) },
+            state: GameState::Init {
+                games: Game::game_page(&fonts.roman, &root_dir),
+            },
             fonts: fonts,
             ink_tx,
             awaiting_ink: 0,
@@ -875,10 +932,12 @@ impl Game {
         let text_area_shape = self.bounds.size();
         match message {
             Msg::Input { page, line, margin } => {
-                if let GameState::Playing { session} = &mut self.state {
+                if let GameState::Playing { session } = &mut self.state {
                     let element = &mut session.pages.contents[page].1[line];
                     match element {
-                        Element::Input { id, active, area, .. } if *id == active.get() => {
+                        Element::Input {
+                            id, active, area, ..
+                        } if *id == active.get() => {
                             let submit = match action {
                                 Action::Ink(ink) => {
                                     if margin {
@@ -889,21 +948,27 @@ impl Game {
                                     }
                                 }
                                 Action::Touch(_) if margin => area.ink.len() == 0,
-                                _ => false
+                                _ => false,
                             };
 
                             if submit {
                                 self.awaiting_ink += 1;
                                 self.ink_tx
-                                    .send((area.ink.clone(), session.dict.clone(), self.awaiting_ink))
+                                    .send((
+                                        area.ink.clone(),
+                                        session.dict.clone(),
+                                        self.awaiting_ink,
+                                    ))
                                     .unwrap();
                             }
                         }
                         _ => {
-                            eprintln!("Strange: got input on an unexpected element. [page={}, line{}]", page, line);
+                            eprintln!(
+                                "Strange: got input on an unexpected element. [page={}, line{}]",
+                                page, line
+                            );
                         }
                     }
-
                 }
             }
             Msg::Page => {
@@ -911,46 +976,50 @@ impl Game {
                     GameState::Playing { session, .. } => match &mut session.restore {
                         None => &mut session.pages,
                         Some(saves) => saves,
-                    }
+                    },
                     GameState::Init { games } => games,
                 };
 
                 if let Action::Touch(touch) = action {
                     if let Some(side) = touch.to_swipe() {
                         match side {
-                            Side::Left => { current_pages.page_relative(1) }
-                            Side::Right => { current_pages.page_relative(-1) }
+                            Side::Left => current_pages.page_relative(1),
+                            Side::Right => current_pages.page_relative(-1),
                             _ => {}
                         }
                     }
                 }
             }
-            Msg::RecognizedText(n, text) => if let GameState::Playing { session }  = &mut self.state {
-                if n == self.awaiting_ink {
-                    match session.zvm_state.clone() {
-                        Step::ReadChar => {
-                            let c = text.chars().next().unwrap_or('\n');
-                            session.zvm.handle_read_char(c as u8);
+            Msg::RecognizedText(n, text) => {
+                if let GameState::Playing { session } = &mut self.state {
+                    if n == self.awaiting_ink {
+                        match session.zvm_state.clone() {
+                            Step::ReadChar => {
+                                let c = text.chars().next().unwrap_or('\n');
+                                session.zvm.handle_read_char(c as u8);
+                            }
+                            Step::ReadLine => {
+                                session.zvm.handle_input(text);
+                            }
+                            other => {
+                                unimplemented!("Got input in unexpected state: {:?}", other);
+                            }
                         }
-                        Step::ReadLine => {
-                            session.zvm.handle_input(text);
-                        }
-                        other => {
-                            unimplemented!("Got input in unexpected state: {:?}", other);
-                        }
+                        match session.advance() {
+                            Step::Restore => {
+                                // Start a new page unless the current page is empty
+                                // session.maybe_new_page(TEXT_AREA_HEIGHT);
+                                let saves = session.load_saves().unwrap();
+                                session.restore_menu(saves, false);
+                            }
+                            Step::Done => {
+                                self.state = GameState::Init {
+                                    games: Game::game_page(&self.fonts.roman, &self.root_dir),
+                                };
+                            }
+                            _ => {}
+                        };
                     }
-                    match session.advance() {
-                        Step::Restore => {
-                            // Start a new page unless the current page is empty
-                            // session.maybe_new_page(TEXT_AREA_HEIGHT);
-                            let saves = session.load_saves().unwrap();
-                            session.restore_menu(saves, false);
-                        }
-                        Step::Done => {
-                            self.state = GameState::Init { games: Game::game_page(&self.fonts.roman, &self.root_dir) };
-                        }
-                        _ => {}
-                    };
                 }
             }
             Msg::LoadGame(game_path) => {
@@ -966,7 +1035,7 @@ impl Game {
                 self.state = GameState::Playing { session }
             }
             Msg::Restore(path, _meta) => {
-                if let GameState::Playing { session }  = &mut self.state {
+                if let GameState::Playing { session } = &mut self.state {
                     session.zvm.ui = BaseUI::new();
                     session.restore(&path);
                     let _state = session.advance();
@@ -1000,7 +1069,7 @@ impl Widget for Game {
             GameState::Playing { session, .. } => match &session.restore {
                 None => &session.pages,
                 Some(saves) => saves,
-            }
+            },
             GameState::Init { games } => games,
         };
 
@@ -1010,14 +1079,17 @@ impl Widget for Game {
 
 fn main() {
     let root_dir = PathBuf::from(
-        std::env::var("ENCRUSTED_ROOT").unwrap_or("/home/root/encrusted".to_string())
+        std::env::var("ENCRUSTED_ROOT").unwrap_or("/home/root/encrusted".to_string()),
     );
 
     let fonts = Fonts {
-        roman: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Regular.ttf").as_ref()).unwrap(),
-        italic: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Italic.ttf").as_ref()).unwrap(),
+        roman: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Regular.ttf").as_ref())
+            .unwrap(),
+        italic: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Italic.ttf").as_ref())
+            .unwrap(),
         bold: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Bold.ttf").as_ref()).unwrap(),
-        monospace: Font::from_bytes(include_bytes!("../fonts/Inconsolata-Regular.ttf").as_ref()).unwrap(),
+        monospace: Font::from_bytes(include_bytes!("../fonts/Inconsolata-Regular.ttf").as_ref())
+            .unwrap(),
     };
 
     let mut app = armrest::app::App::new();
@@ -1039,12 +1111,7 @@ fn main() {
         Point2::new(LEFT_MARGIN + LINE_LENGTH, TOP_MARGIN + TEXT_AREA_HEIGHT),
     );
 
-    let game = Game::init(
-        page_bounds,
-        fonts,
-        ink_tx,
-        root_dir,
-    );
+    let game = Game::init(page_bounds, fonts, ink_tx, root_dir);
 
     let _thread = thread::spawn(move || {
         let mut recognizer: Recognizer<Spline> = ml::Recognizer::new().unwrap();

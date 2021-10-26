@@ -1,9 +1,9 @@
 extern crate base64;
 extern crate clap;
+extern crate encrusted_heart;
 extern crate rand;
 extern crate regex;
 extern crate serde_json;
-extern crate encrusted_heart;
 extern crate termion;
 
 #[macro_use]
@@ -18,24 +18,24 @@ extern crate serde_derive;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
-use std::{process, io, mem};
+use std::{io, mem, process};
 
 use clap::{App, Arg};
 use regex::Regex;
 
 use encrusted_heart::options::Options;
-use encrusted_heart::traits::{UI, BaseUI, BaseOutput};
-use encrusted_heart::zmachine::{Zmachine, Step};
-use termion::raw::IntoRawMode;
-use termion::input::TermRead;
+use encrusted_heart::traits::{BaseOutput, BaseUI, UI};
+use encrusted_heart::zmachine::{Step, Zmachine};
 use termion::event::Key;
+use termion::input::TermRead;
+use termion::raw::IntoRawMode;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 lazy_static! {
-    static ref ANSI_RE: Regex = Regex::new(
-        r"[\x1b\x9b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PRZcf-nqry=><]"
-    ).unwrap();
+    static ref ANSI_RE: Regex =
+        Regex::new(r"[\x1b\x9b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PRZcf-nqry=><]")
+            .unwrap();
 }
 
 fn get_user_input() -> String {
@@ -117,7 +117,11 @@ fn main() {
         if zvm.ui.is_cleared() {
             print!("{}", termion::clear::All);
         }
-        for BaseOutput{ style, content: text } in zvm.ui.drain_output() {
+        for BaseOutput {
+            style,
+            content: text,
+        } in zvm.ui.drain_output()
+        {
             // `.lines()` discards trailing \n and collapses multiple \n's between lines
             let lines = text.split('\n').collect::<Vec<_>>();
             let num_lines = lines.len();
@@ -163,7 +167,11 @@ fn main() {
         print!("{}", termion::cursor::Save);
         // eprintln!();
         for (line_no, chars) in zvm.ui.upper_window().clone().into_iter().enumerate() {
-            print!("{}{}", termion::cursor::Goto(1, 1 + line_no as u16), termion::clear::CurrentLine);
+            print!(
+                "{}{}",
+                termion::cursor::Goto(1, 1 + line_no as u16),
+                termion::clear::CurrentLine
+            );
             for (style, c) in chars.into_iter().take(term_width as usize) {
                 if style.bold() {
                     print!("{}", termion::style::Bold);
@@ -212,7 +220,8 @@ fn main() {
 
                 // The save PC points to either the save instructions branch data or store
                 // data. In either case, this is the last byte of the instruction. (so -1)
-                file.write_all(data.as_slice()).expect("Error saving to file");
+                file.write_all(data.as_slice())
+                    .expect("Error saving to file");
 
                 zvm.handle_save_result(true);
             }
@@ -232,9 +241,8 @@ fn main() {
                 }
 
                 // restore program counter position, stack frames, and dynamic memory
-                file.read_to_end(&mut data).expect(
-                    "Error reading save file",
-                );
+                file.read_to_end(&mut data)
+                    .expect("Error reading save file");
                 zvm.restore(&base64::encode(&data));
             }
             Step::ReadChar => {

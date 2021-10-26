@@ -6,7 +6,6 @@ extern crate rand;
 extern crate serde;
 extern crate serde_json;
 
-
 pub mod buffer;
 pub mod frame;
 pub mod instruction;

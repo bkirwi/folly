@@ -8,12 +8,24 @@ pub enum Window {
 pub struct TextStyle(pub u16);
 
 impl TextStyle {
-    pub fn new(flags: u16) -> TextStyle { TextStyle(flags) }
-    pub fn roman(self) -> bool { self.0 == 0 }
-    pub fn reverse_video(self) -> bool { self.0 & 0b0001 != 0 }
-    pub fn bold(self) -> bool { self.0 & 0b0010 != 0 }
-    pub fn italic(self) -> bool { self.0 & 0b0100 != 0 }
-    pub fn fixed_pitch(self) -> bool { self.0 & 0b1000 != 0 }
+    pub fn new(flags: u16) -> TextStyle {
+        TextStyle(flags)
+    }
+    pub fn roman(self) -> bool {
+        self.0 == 0
+    }
+    pub fn reverse_video(self) -> bool {
+        self.0 & 0b0001 != 0
+    }
+    pub fn bold(self) -> bool {
+        self.0 & 0b0010 != 0
+    }
+    pub fn italic(self) -> bool {
+        self.0 & 0b0100 != 0
+    }
+    pub fn fixed_pitch(self) -> bool {
+        self.0 & 0b1000 != 0
+    }
 }
 
 impl Default for TextStyle {
@@ -93,24 +105,21 @@ impl BaseUI {
     }
 }
 
-
 impl UI for BaseUI {
     fn print(&mut self, text: &str, style: TextStyle) {
         match self.current_window {
-            Window::Lower => {
-                match self.output.last_mut() {
-                    Some(BaseOutput { style: old_style, content })
-                    if *old_style == style => {
-                        content.push_str(text);
-                    }
-                    _ => {
-                        self.output.push(BaseOutput {
-                            style: style,
-                            content: text.to_string()
-                        })
-                    }
+            Window::Lower => match self.output.last_mut() {
+                Some(BaseOutput {
+                    style: old_style,
+                    content,
+                }) if *old_style == style => {
+                    content.push_str(text);
                 }
-            }
+                _ => self.output.push(BaseOutput {
+                    style: style,
+                    content: text.to_string(),
+                }),
+            },
             Window::Upper => {
                 self.resolve_upper_height();
                 for c in text.chars() {

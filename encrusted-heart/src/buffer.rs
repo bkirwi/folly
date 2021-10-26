@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-
 #[derive(Debug)]
 pub struct Reader<'a> {
     buffer: &'a Buffer,

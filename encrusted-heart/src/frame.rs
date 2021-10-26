@@ -136,7 +136,7 @@ impl Frame {
                 out.push_str(&format!("{:04x}", val));
             }
 
-            out.push_str("]");
+            out.push(']');
             out
         };
 

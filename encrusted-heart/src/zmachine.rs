@@ -46,7 +46,7 @@ impl Object {
             String::from("(Null Object)")
         };
 
-        if name == "" {
+        if name.is_empty() {
             name += "(No Name)";
         }
 
@@ -195,7 +195,7 @@ impl<ZUI> Zmachine<ZUI> {
             attr_width: if version <= 3 { 4 } else { 6 },
             paused_instr: None,
             undos: VecDeque::new(),
-            rng: rand::SeedableRng::from_seed(options.rand_seed.clone()),
+            rng: rand::SeedableRng::from_seed(options.rand_seed),
             memory,
             options,
             disable_output: false,
@@ -421,7 +421,7 @@ impl<ZUI> Zmachine<ZUI> {
             let mut step = |zchar: u8| {
                 state = match (zchar, &state) {
                     // the next zchar will be an abbrev index
-                    (zch, &Alphabet(_)) if zch >= 1 && zch <= 3 => Abbrev(zch),
+                    (zch, &Alphabet(_)) if (1..=3).contains(&zch) => Abbrev(zch),
                     // shift character for the next zchar
                     (4, &Alphabet(_)) => Alphabet(1),
                     (5, &Alphabet(_)) => Alphabet(2),
@@ -1071,7 +1071,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
     }
 
     fn restore_state(&mut self, data: &[u8]) {
-        let save = QuetzalSave::from_bytes(&data[..], &self.original_dynamic[..]);
+        let save = QuetzalSave::from_bytes(data, &self.original_dynamic[..]);
 
         // verify that the save if so the right game and that the memory is ok
         if save.chksum != self.memory.read_word(0x1C) {
@@ -1319,7 +1319,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (EXT_1002, &[num, places]) => Some(self.do_log_shift(num, places)),
             (EXT_1003, &[num, places]) => Some(self.do_art_shift(num, places)),
             (EXT_1004, &[font]) => Some(self.do_set_font(font)),
-            (EXT_1009, &[]) => Some(self.do_save_undo(&instr)),
+            (EXT_1009, &[]) => Some(self.do_save_undo(instr)),
             _ => None,
         };
 
@@ -2031,7 +2031,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
     // VAR_229
     fn do_print_char(&mut self, chr: u16) {
         let code = chr as u8;
-        let ch = if code >= 155 && code <= 223 {
+        let ch = if (155..=223).contains(&code) {
             DEFAULT_UNICODE_TABLE[(code - 155) as usize]
         } else {
             code as char
@@ -2136,10 +2136,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 if enabled {
                     let table_addr = args[0] as usize;
                     self.memory_output.push((table_addr, table_addr + 2));
-                } else {
-                    if let Some((start, end)) = self.memory_output.pop() {
-                        self.memory.write_word(start, (end - start - 2) as u16);
-                    }
+                } else if let Some((start, end)) = self.memory_output.pop() {
+                    self.memory.write_word(start, (end - start - 2) as u16);
                 }
             }
             4 => {
@@ -2381,7 +2379,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             write!(out, "{:1$}   ", word, width).unwrap()
         }
 
-        out.push_str("\n");
+        out.push('\n');
         self.ui.debug(&out);
     }
 
@@ -2611,7 +2609,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let parent_num = self.get_parent(num);
 
         if parent_num == 0 {
-            self.ui.debug(&"Parent if the root object 0");
+            self.ui.debug("Parent if the root object 0");
         } else {
             let mut parent = Object::new(parent_num, self);
             self.add_object_children(&mut parent);

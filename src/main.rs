@@ -4,41 +4,41 @@ extern crate enum_primitive;
 #[macro_use]
 extern crate lazy_static;
 
-use std::{fs, io, mem, process, thread};
+use std::{fs, io, mem, thread};
 use std::borrow::Borrow;
 use std::collections::BTreeSet;
-use std::env;
-use std::ffi::OsStr;
+
+
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Sink, Write};
-use std::io::SeekFrom::Start;
-use std::ops::Bound;
+use std::io::{Read, Write};
+
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
-use std::time::{Instant, SystemTime};
 
-use armrest::{gesture, ml, ui};
-use armrest::gesture::{Gesture, Tool, Touch};
+
+use armrest::{ml, ui};
+
 use armrest::ink::Ink;
 use armrest::ml::{LanguageModel, Recognizer, Spline};
-use armrest::ui::{Action, BoundingBox, Frame, Paged, Side, Stack, Text, Widget, TextBuilder, Handlers, Void, Fill};
-use clap::{App, Arg};
-use libremarkable::cgmath::{EuclideanSpace, Point2, Vector2};
-use libremarkable::framebuffer::{core, FramebufferRefresh, FramebufferIO};
+use armrest::ui::{Action, BoundingBox, Frame, Side, Stack, Text, Widget, Handlers, Void};
+
+use libremarkable::cgmath::{Point2, Vector2};
+
 use libremarkable::framebuffer::common::{color, DISPLAYWIDTH, DISPLAYHEIGHT};
-use libremarkable::framebuffer::FramebufferBase;
+
 use libremarkable::framebuffer::FramebufferDraw;
-use libremarkable::input::{InputDevice, InputEvent};
-use libremarkable::input::ev::EvDevContext;
-use libremarkable::input::multitouch::MultitouchEvent;
-use rusttype::{Font, Scale};
+
+
+
+use rusttype::{Font};
 use serde::{Deserialize, Serialize};
 use itertools::{Itertools, Position};
 
 use encrusted_heart::options::Options;
-use encrusted_heart::traits::{UI, BaseUI, BaseOutput, Window, TextStyle};
+use encrusted_heart::traits::{UI, BaseUI, BaseOutput, TextStyle};
 use encrusted_heart::zmachine::{Zmachine, Step};
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell};
 use std::rc::Rc;
 use regex::Regex;
 
@@ -374,7 +374,7 @@ impl Widget for Page {
 
         let page_number_start = (frame.size().x - page_text.size().x) / 2;
 
-        let mut before = frame.split_off(Side::Left, page_number_start);
+        let before = frame.split_off(Side::Left, page_number_start);
         if self.page_number > 0 {
             let left_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, "<");
             left_arrow.render_placed(handlers, before, 0.98, 0.5);
@@ -382,7 +382,7 @@ impl Widget for Page {
             mem::drop(before);
         }
 
-        let mut after = frame.split_off(Side::Right, page_number_start);
+        let after = frame.split_off(Side::Right, page_number_start);
         if self.page_number + 1 < self.contents.len() {
             let right_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, ">");
             right_arrow.render_placed(handlers, after, 0.02, 0.5)
@@ -445,7 +445,7 @@ impl Session {
         Ok(saves)
     }
 
-    pub fn restore_menu(&mut self, saves: Vec<PathBuf>, bounds: Vector2<i32>, initial_run: bool) {
+    pub fn restore_menu(&mut self, saves: Vec<PathBuf>, initial_run: bool) {
         let mut page = Page::new();
 
         let continue_message = if initial_run {
@@ -661,7 +661,6 @@ impl Session {
 
                 let status_line =
                     if let Some((left, right)) = self.zvm.ui.status_line() {
-                        let name_width = self.zvm.options.dimensions.0 - 2;
                         Some(format!("{}  {}", left, right))
                     } else {
                         match self.zvm.ui.upper_window().get(0) {
@@ -793,12 +792,12 @@ impl Game {
             unimplemented!();
         }
 
-        let mut ui = BaseUI::new();
+        let ui = BaseUI::new();
 
         let mut opts = Options::default();
         opts.dimensions.0 = CHARS_PER_LINE as u16;
 
-        let mut zvm = Zmachine::new(data, ui, opts);
+        let zvm = Zmachine::new(data, ui, opts);
 
         let dict = Dict(zvm.get_dictionary().into_iter().collect());
 
@@ -808,7 +807,7 @@ impl Game {
         if !save_root.exists() {
             fs::create_dir(&save_root)?;
         }
-        let mut session = Session {
+        let session = Session {
             font: self.fonts.clone(),
             zvm,
             zvm_state: Step::Done,
@@ -823,7 +822,7 @@ impl Game {
         Ok(session)
     }
 
-    fn game_page(font: &Font<'static>, size: Vector2<i32>, root_dir: &Path) -> Page {
+    fn game_page(font: &Font<'static>, root_dir: &Path) -> Page {
         let mut games = Page::new();
 
         let header = Text::literal(LINE_HEIGHT * 3, font, "ENCRUSTED");
@@ -864,7 +863,7 @@ impl Game {
     fn init(bounds: BoundingBox, fonts: Fonts, ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>, root_dir: PathBuf) -> Game {
         Game {
             bounds,
-            state: GameState::Init { games: Game::game_page(&fonts.roman, bounds.size(), &root_dir) },
+            state: GameState::Init { games: Game::game_page(&fonts.roman, &root_dir) },
             fonts: fonts,
             ink_tx,
             awaiting_ink: 0,
@@ -945,10 +944,10 @@ impl Game {
                             // Start a new page unless the current page is empty
                             // session.maybe_new_page(TEXT_AREA_HEIGHT);
                             let saves = session.load_saves().unwrap();
-                            session.restore_menu(saves, text_area_shape, false);
+                            session.restore_menu(saves, false);
                         }
                         Step::Done => {
-                            self.state = GameState::Init { games: Game::game_page(&self.fonts.roman, self.bounds.size(), &self.root_dir) };
+                            self.state = GameState::Init { games: Game::game_page(&self.fonts.roman, &self.root_dir) };
                         }
                         _ => {}
                     };
@@ -961,16 +960,16 @@ impl Game {
                     let state = session.advance();
                     assert!(state == Step::ReadLine || state == Step::ReadChar);
                 } else {
-                    session.restore_menu(saves, text_area_shape, true)
+                    session.restore_menu(saves, true)
                 }
 
                 self.state = GameState::Playing { session }
             }
-            Msg::Restore(path, meta) => {
+            Msg::Restore(path, _meta) => {
                 if let GameState::Playing { session }  = &mut self.state {
                     session.zvm.ui = BaseUI::new();
                     session.restore(&path);
-                    let state = session.advance();
+                    let _state = session.advance();
                     // restoring inserts a page break by default, which is boring.
                     session.pages.page_relative(1);
                     session.restore = None;
@@ -981,7 +980,7 @@ impl Game {
                     if session.zvm_state == Step::Restore {
                         session.zvm.handle_restore_result();
                     }
-                    let state = session.advance();
+                    let _state = session.advance();
                     session.restore = None;
                 }
             }
@@ -996,7 +995,7 @@ impl Widget for Game {
         Vector2::new(DISPLAYWIDTH as i32, DISPLAYHEIGHT as i32)
     }
 
-    fn render(&self, handlers: &mut Handlers<Msg>, mut frame: Frame) {
+    fn render(&self, handlers: &mut Handlers<Msg>, frame: Frame) {
         let current_pages = match &self.state {
             GameState::Playing { session, .. } => match &session.restore {
                 None => &session.pages,
@@ -1013,9 +1012,6 @@ fn main() {
     let root_dir = PathBuf::from(
         std::env::var("ENCRUSTED_ROOT").unwrap_or("/home/root/encrusted".to_string())
     );
-
-    let font_bytes =
-        fs::read("/usr/share/fonts/ttf/ebgaramond/EBGaramond-VariableFont_wght.ttf").unwrap();
 
     let fonts = Fonts {
         roman: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Regular.ttf").as_ref()).unwrap(),
@@ -1043,7 +1039,7 @@ fn main() {
         Point2::new(LEFT_MARGIN + LINE_LENGTH, TOP_MARGIN + TEXT_AREA_HEIGHT),
     );
 
-    let mut game = Game::init(
+    let game = Game::init(
         page_bounds,
         fonts,
         ink_tx,

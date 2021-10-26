@@ -91,13 +91,13 @@ fn main() {
         process::exit(1);
     }
 
-    let mut ui = BaseUI::new();
+    let ui = BaseUI::new();
 
-    let (term_width, term_height) = termion::terminal_size().unwrap();
+    let (term_width, _term_height) = termion::terminal_size().unwrap();
 
     let mut opts = Options::default();
-    opts.save_dir = path.parent().unwrap().to_string_lossy().into_owned();
-    opts.save_name = path.file_stem().unwrap().to_string_lossy().into_owned();
+    let save_dir = path.parent().unwrap().to_string_lossy().into_owned();
+    let mut save_name = path.file_stem().unwrap().to_string_lossy().into_owned();
 
     let rand32 = || rand::random();
     opts.rand_seed = [rand32(), rand32(), rand32(), rand32()];
@@ -118,7 +118,7 @@ fn main() {
             print!("{}", termion::clear::All);
         }
         for BaseOutput {
-            style,
+            style: _,
             content: text,
         } in zvm.ui.drain_output()
         {
@@ -193,13 +193,13 @@ fn main() {
                 break;
             }
             Step::Save(data) => {
-                println!("\nFilename [{}]: ", zvm.options.save_name);
+                println!("\nFilename [{}]: ", &save_name);
                 let input = get_user_input();
-                let mut path = PathBuf::from(&zvm.options.save_dir);
+                let mut path = PathBuf::from(&save_dir);
                 let mut file;
 
                 match input.to_lowercase().as_ref() {
-                    "" | "yes" | "y" => path.push(&zvm.options.save_name),
+                    "" | "yes" | "y" => path.push(&save_name),
                     "no" | "n" | "cancel" => {
                         zvm.handle_save_result(false);
                         continue;
@@ -216,7 +216,7 @@ fn main() {
                 }
 
                 // save file name for next use
-                zvm.options.save_name = path.file_name().unwrap().to_string_lossy().into_owned();
+                save_name = path.file_name().unwrap().to_string_lossy().into_owned();
 
                 // The save PC points to either the save instructions branch data or store
                 // data. In either case, this is the last byte of the instruction. (so -1)
@@ -226,11 +226,11 @@ fn main() {
                 zvm.handle_save_result(true);
             }
             Step::Restore => {
-                print!("\nFilename [{}]: ", &zvm.options.save_name);
+                print!("\nFilename [{}]: ", &save_name);
                 io::stdout().flush().unwrap();
 
                 let input = get_user_input();
-                let mut path = PathBuf::from(&zvm.options.save_dir);
+                let mut path = PathBuf::from(&save_dir);
                 let mut data = Vec::new();
                 path.push(input);
 

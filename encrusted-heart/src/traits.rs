@@ -208,5 +208,5 @@ impl UI for BaseUI {
 
     fn flush(&mut self) {}
 
-    fn message(&self, mtype: &str, msg: &str) {}
+    fn message(&self, _mtype: &str, _msg: &str) {}
 }

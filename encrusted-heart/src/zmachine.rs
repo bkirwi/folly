@@ -3,15 +3,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
 use std::fmt;
 use std::fmt::Write as FmtWrite;
-use std::fs::File;
-use std::io::prelude::*;
-use std::path::PathBuf;
+
 use std::process;
 use std::str;
 
 use enum_primitive::FromPrimitive;
 use rand::{Rng, SeedableRng};
-use serde::Serialize;
 
 use crate::buffer::Buffer;
 use crate::frame::Frame;
@@ -140,8 +137,6 @@ pub struct Zmachine<ZUI> {
     version: u8,
     memory: Buffer,
     original_dynamic: Vec<u8>,
-    save_dir: String,
-    save_name: String,
     static_start: usize,
     routine_offset: usize,
     string_offset: usize,
@@ -184,8 +179,6 @@ impl<ZUI> Zmachine<ZUI> {
         let mut zvm = Zmachine {
             version,
             ui,
-            save_dir: options.save_dir.clone(),
-            save_name: format!("{}.sav", &options.save_name),
             instr_log: String::new(),
             original_dynamic: memory.slice(0, static_start).to_vec(),
             globals_addr: memory.read_word(0x0C) as usize,
@@ -1620,7 +1613,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 }
                 // READ (breaks loop)
                 Opcode::VAR_228 => {
-                    let state = self.make_save_state(self.pc);
+                    let _state = self.make_save_state(self.pc);
 
                     self.update_status_bar();
 
@@ -1633,7 +1626,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 }
                 // READ_CHAR
                 Opcode::VAR_246 => {
-                    let state = self.make_save_state(self.pc);
+                    let _state = self.make_save_state(self.pc);
 
                     // let (location, _) = self.get_status();
                     // self.current_state = Some((location, state));
@@ -2340,7 +2333,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
     }
 
     // VAR_247
-    fn do_scan_table(&mut self, x: u16, table: u16, mut len: u16, form: Option<u16>) -> u16 {
+    fn do_scan_table(&mut self, x: u16, table: u16, len: u16, form: Option<u16>) -> u16 {
         let table = table as usize;
         let len = len as usize;
 
@@ -2894,7 +2887,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             if let Some(addr) = next {
                 follow(zvm, set, zvm.decode_instruction(addr));
             };
-        };
+        }
 
         follow(self, &mut set, first_instr);
 

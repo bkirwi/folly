@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use encrusted_heart::options::Options;
 use encrusted_heart::traits::{BaseOutput, BaseUI, TextStyle, UI};
 use encrusted_heart::zmachine::{Step, Zmachine};
+use encrusted_heart::zscii::ZChar;
 use regex::Regex;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -995,7 +996,7 @@ impl Game {
                         match session.zvm_state.clone() {
                             Step::ReadChar => {
                                 let c = text.chars().next().unwrap_or('\n');
-                                session.zvm.handle_read_char(c as u8);
+                                session.zvm.handle_read_char(ZChar(c as u8));
                             }
                             Step::ReadLine => {
                                 session.zvm.handle_input(text);

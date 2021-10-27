@@ -13,14 +13,8 @@ use crate::instruction::*;
 use crate::options::Options;
 use crate::quetzal::QuetzalSave;
 use crate::traits::{TextStyle, Window, UI};
+use crate::zscii::{ZChar, DEFAULT_UNICODE_TABLE};
 use std::cmp::Ordering;
-
-const DEFAULT_UNICODE_TABLE: &[char] = &[
-    'ä', 'ö', 'ü', 'Ä', 'Ö', 'Ü', 'ß', '»', '«', 'ë', 'ï', 'ÿ', 'Ë', 'Ï', 'á', 'é', 'í', 'ó', 'ú',
-    'ý', 'Á', 'É', 'Í', 'Ó', 'Ú', 'Ý', 'à', 'è', 'ì', 'ò', 'ù', 'À', 'È', 'Ì', 'Ò', 'Ù', 'â', 'ê',
-    'î', 'ô', 'û', 'Â', 'Ê', 'Î', 'Ô', 'Û', 'å', 'Å', 'ø', 'Ø', 'ã', 'ñ', 'õ', 'Ã', 'Ñ', 'Õ', 'æ',
-    'Æ', 'ç', 'Ç', 'þ', 'ð', 'Þ', 'Ð', '£', 'œ', 'Œ', '¡', '¿',
-];
 
 #[derive(Debug)]
 enum ZStringState {
@@ -1492,13 +1486,13 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.pc = instr.next;
     }
 
-    pub fn handle_read_char(&mut self, input: u8) {
+    pub fn handle_read_char(&mut self, input: ZChar) {
         let instr = self
             .paused_instr
             .take()
             .expect("Can't handle input, no paused instruction to resume");
 
-        self.process_result(&instr, input as u16);
+        self.process_result(&instr, input.0.into());
     }
 
     pub fn handle_save_result(&mut self, successful: bool) {
@@ -2220,7 +2214,13 @@ impl<ZUI: UI> Zmachine<ZUI> {
         };
     }
 
-    fn do_print_table(&mut self, mut zstring: u16, width: u16, height: Option<u16>, skip: Option<u16>) {
+    fn do_print_table(
+        &mut self,
+        mut zstring: u16,
+        width: u16,
+        height: Option<u16>,
+        skip: Option<u16>,
+    ) {
         // TODO: this isn't quite the right behaviour in the upper window...
         // IIUC, we should be returning to the original column for each line instead of column 1,
         // which is the current behaviour on \n.
@@ -2235,7 +2235,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 self.print("\n")
             }
             height -= 1;
-            zstring += stride;
+            zstring = zstring.wrapping_add(stride);
         }
     }
 
@@ -2311,10 +2311,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     fn do_restore_undo(&mut self) {
         if let Some(save_contents) = self.undos.pop_back() {
-            eprintln!("Program counter: {:x}", self.pc);
             self.restore_state(&save_contents);
             self.process_restore_result();
-            eprintln!("Program counter: {:x}", self.pc);
         }
     }
 

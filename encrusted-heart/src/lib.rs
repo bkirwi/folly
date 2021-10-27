@@ -13,3 +13,4 @@ pub mod options;
 pub mod quetzal;
 pub mod traits;
 pub mod zmachine;
+pub mod zscii;

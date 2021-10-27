@@ -339,7 +339,12 @@ impl Instruction {
 
     pub fn should_advance(&self, version: u8) -> bool {
         match self.opcode {
-            Opcode::OP0_181 | Opcode::OP0_182 | Opcode::EXT_1000 | Opcode::EXT_1001 | Opcode::EXT_1009 | Opcode::EXT_1010 => false,
+            Opcode::OP0_181
+            | Opcode::OP0_182
+            | Opcode::EXT_1000
+            | Opcode::EXT_1001
+            | Opcode::EXT_1009
+            | Opcode::EXT_1010 => false,
             _ => !self.does_call(version),
         }
     }

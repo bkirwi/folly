@@ -22,6 +22,7 @@ use termion::raw::IntoRawMode;
 use encrusted_heart::options::Options;
 use encrusted_heart::traits::{BaseOutput, BaseUI};
 use encrusted_heart::zmachine::{Step, Zmachine};
+use encrusted_heart::zscii::ZChar;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -105,7 +106,7 @@ fn main() {
     let (term_width, term_height) = if is_tty {
         termion::terminal_size().unwrap()
     } else {
-        (0, 0)
+        (80, 24)
     };
 
     let mut opts = Options::default();
@@ -136,7 +137,8 @@ fn main() {
         } in zvm.ui.drain_output()
         {
             if !is_tty {
-                println!("{}", &text);
+                print!("{}", &text);
+                io::stdout().flush().unwrap();
                 continue;
             }
 
@@ -266,36 +268,46 @@ fn main() {
                 zvm.restore(&data);
             }
             Step::ReadChar => {
-                let stdout = io::stdout().into_raw_mode().unwrap();
-                let mut keys = io::stdin().keys();
+                let zscii: ZChar = if is_tty {
+                    let stdout = io::stdout().into_raw_mode().unwrap();
+                    let mut keys = io::stdin().keys();
 
-                // While we expect just a single char, this loops in case unexpected characters
-                // are encountered. (We ignore them.)
-                let zscii = loop {
-                    let key = keys.next().expect("Error reading input").unwrap();
-                    break match key {
-                        Key::Backspace => 8,
-                        Key::Delete => 8,
-                        Key::Esc => 27,
-                        Key::Up => 129,
-                        Key::Down => 130,
-                        Key::Left => 131,
-                        Key::Right => 132,
-                        Key::Char(c) => c as u8,
-                        _ => continue,
+                    // While we expect just a single char, this loops in case unexpected characters
+                    // are encountered. (We ignore them.)
+                    let zch = loop {
+                        let key = keys.next().expect("Error reading input").unwrap();
+                        break match key {
+                            Key::Backspace => ZChar::DELETE,
+                            Key::Delete => ZChar::DELETE,
+                            Key::Esc => ZChar::ESC,
+                            Key::Up => ZChar::UP,
+                            Key::Down => ZChar::DOWN,
+                            Key::Left => ZChar::LEFT,
+                            Key::Right => ZChar::RIGHT,
+                            Key::Char(c) => match ZChar::from_char(c, &[]) {
+                                None => continue,
+                                Some(zch) => zch,
+                            },
+                            _ => continue,
+                        };
                     };
+                    mem::drop(stdout);
+                    zch
+                } else {
+                    ZChar::RETURN
                 };
 
                 zvm.handle_read_char(zscii);
-
-                mem::drop(stdout);
             }
             Step::ReadLine => {
                 let input = match get_user_input() {
                     None => return,
                     Some(line) => line,
                 };
-                println!("{}", &input);
+                if !is_tty {
+                    // This won't be automatically visible in stdout!
+                    println!("{}", &input);
+                }
                 zvm.handle_input(input);
             }
         }

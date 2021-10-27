@@ -493,7 +493,11 @@ impl<ZUI> Zmachine<ZUI> {
     /// via special memory locations. This is important to set for both new games
     /// and on restarts (in case the old and new interpreter had different values.)
     fn set_dynamic_headers(&mut self) {
-        if self.version >= 4 {
+        if self.version <= 3 {
+            let mut flags1 = self.memory.read_byte(0x01);
+            flags1 |= 0b0110_0000;
+            self.memory.write_byte(0x01, flags1);
+        } else {
             let (width, height) = self.options.dimensions;
             // yes, the order switches between the two!
             self.memory.write_byte(0x20, height as u8);
@@ -504,7 +508,7 @@ impl<ZUI> Zmachine<ZUI> {
             self.memory.write_byte(0x27, 1);
 
             let mut flags1 = self.memory.read_byte(0x01);
-            flags1 &= 0b01011100;
+            flags1 |= 0b0001_1100;
             self.memory.write_byte(0x01, flags1);
         }
 
@@ -1523,12 +1527,9 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.process_restore_result();
     }
 
-    // Web UI only
     // Loads a saved state _without_ processing a restore result (like the above)
-    #[allow(dead_code)]
-    pub fn load_savestate(&mut self, data: &str) {
-        let state = base64::decode(data).unwrap();
-        self.restore_state(state.as_slice());
+    pub fn load_savestate(&mut self, state: &[u8]) {
+        self.restore_state(state);
     }
 
     fn print(&mut self, text: &str) {
@@ -2220,10 +2221,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
     }
 
     fn do_print_table(&mut self, zstring: u16, width: u16, height: Option<u16>, skip: Option<u16>) {
-        assert!(
-            height.is_none() && skip.is_none(),
-            "Full printing of tables is not yet implemented!"
-        );
+        // assert!(
+        //     height.is_none() && skip.is_none(),
+        //     "Full printing of tables is not yet implemented!"
+        // );
 
         let data = self.memory.read(zstring as usize, width as usize).to_vec();
         if let Ok(string) = str::from_utf8(&data) {
@@ -2303,8 +2304,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     fn do_restore_undo(&mut self) {
         if let Some(save_contents) = self.undos.pop_back() {
+            eprintln!("Program counter: {:x}", self.pc);
             self.restore_state(&save_contents);
             self.process_restore_result();
+            eprintln!("Program counter: {:x}", self.pc);
         }
     }
 

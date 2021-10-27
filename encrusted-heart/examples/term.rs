@@ -8,10 +8,10 @@ extern crate regex;
 extern crate serde_json;
 extern crate termion;
 
-use std::{io, mem, process};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
+use std::{io, mem, process};
 
 use clap::{App, Arg};
 use regex::Regex;
@@ -31,22 +31,30 @@ lazy_static! {
             .unwrap();
 }
 
-fn get_user_input() -> String {
+fn get_user_input() -> Option<String> {
     let mut input = String::new();
-    io::stdin()
+    let result = io::stdin()
         .read_line(&mut input)
         .expect("Error reading input");
 
     // trim, strip and control sequences that might have gotten in,
     // and then trim once more to get rid of any excess whitespace
-    ANSI_RE
+    let trimmed = ANSI_RE
         .replace_all(input.trim(), "")
         .to_string()
         .trim()
-        .to_string()
+        .to_string();
+
+    if result == 0 {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 fn main() {
+    let is_tty = termion::is_tty(&io::stdout().lock());
+
     let matches = App::new("encrusted")
         .version(VERSION)
         .about("A zmachine interpreter")
@@ -55,9 +63,17 @@ fn main() {
                 .help("Sets the story file to run")
                 .required(true),
         )
+        .arg(
+            Arg::with_name("debug")
+                .long("debug")
+                .takes_value(false)
+                .help("Log verbose debugging information to stderr"),
+        )
         .get_matches();
 
     let path = Path::new(matches.value_of("FILE").unwrap());
+
+    let debug_log = matches.is_present("debug");
 
     if !path.is_file() {
         println!(
@@ -86,7 +102,11 @@ fn main() {
 
     let ui = BaseUI::new();
 
-    let (term_width, _term_height) = termion::terminal_size().unwrap();
+    let (term_width, term_height) = if is_tty {
+        termion::terminal_size().unwrap()
+    } else {
+        (0, 0)
+    };
 
     let mut opts = Options::default();
     let save_dir = path.parent().unwrap().to_string_lossy().into_owned();
@@ -94,12 +114,12 @@ fn main() {
 
     let rand32 = || rand::random();
     opts.rand_seed = [rand32(), rand32(), rand32(), rand32()];
-    opts.dimensions.0 = term_width;
-    opts.log_instructions = true;
-    // opts.dimensions.1 = term_height;
-    println!("{}", term_width);
+    opts.dimensions = (term_width, term_height);
+    opts.log_instructions = debug_log;
 
-    print!("{}", termion::clear::All);
+    if is_tty {
+        print!("{}", termion::clear::All);
+    }
 
     let mut zvm = Zmachine::new(data, ui, opts);
     let mut x_position = 0;
@@ -107,7 +127,7 @@ fn main() {
     loop {
         let step = zvm.step();
 
-        if zvm.ui.is_cleared() {
+        if is_tty && zvm.ui.is_cleared() {
             print!("{}", termion::clear::All);
         }
         for BaseOutput {
@@ -115,6 +135,11 @@ fn main() {
             content: text,
         } in zvm.ui.drain_output()
         {
+            if !is_tty {
+                println!("{}", &text);
+                continue;
+            }
+
             // `.lines()` discards trailing \n and collapses multiple \n's between lines
             let lines = text.split('\n').collect::<Vec<_>>();
             let num_lines = lines.len();
@@ -157,29 +182,31 @@ fn main() {
             io::stdout().flush().unwrap();
         }
 
-        print!("{}", termion::cursor::Save);
-        // eprintln!();
-        for (line_no, chars) in zvm.ui.upper_window().clone().into_iter().enumerate() {
-            print!(
-                "{}{}",
-                termion::cursor::Goto(1, 1 + line_no as u16),
-                termion::clear::CurrentLine
-            );
-            for (style, c) in chars.into_iter().take(term_width as usize) {
-                if style.bold() {
-                    print!("{}", termion::style::Bold);
+        if is_tty {
+            print!("{}", termion::cursor::Save);
+            // eprintln!();
+            for (line_no, chars) in zvm.ui.upper_window().clone().into_iter().enumerate() {
+                print!(
+                    "{}{}",
+                    termion::cursor::Goto(1, 1 + line_no as u16),
+                    termion::clear::CurrentLine
+                );
+                for (style, c) in chars.into_iter().take(term_width as usize) {
+                    if style.bold() {
+                        print!("{}", termion::style::Bold);
+                    }
+                    if style.italic() {
+                        print!("{}", termion::style::Italic);
+                    }
+                    if style.reverse_video() {
+                        print!("{}", termion::style::Invert);
+                    }
+                    print!("{}{}", c, termion::style::Reset);
                 }
-                if style.italic() {
-                    print!("{}", termion::style::Italic);
-                }
-                if style.reverse_video() {
-                    print!("{}", termion::style::Invert);
-                }
-                print!("{}{}", c, termion::style::Reset);
             }
+            print!("{}", termion::cursor::Restore);
+            io::stdout().flush().unwrap();
         }
-        print!("{}", termion::cursor::Restore);
-        io::stdout().flush().unwrap();
 
         match step {
             Step::Done => {
@@ -187,7 +214,7 @@ fn main() {
             }
             Step::Save(data) => {
                 println!("\nFilename [{}]: ", &save_name);
-                let input = get_user_input();
+                let input = get_user_input().unwrap();
                 let mut path = PathBuf::from(&save_dir);
                 let mut file;
 
@@ -222,7 +249,7 @@ fn main() {
                 print!("\nFilename [{}]: ", &save_name);
                 io::stdout().flush().unwrap();
 
-                let input = get_user_input();
+                let input = get_user_input().unwrap();
                 let mut path = PathBuf::from(&save_dir);
                 let mut data = Vec::new();
                 path.push(input);
@@ -264,7 +291,11 @@ fn main() {
                 mem::drop(stdout);
             }
             Step::ReadLine => {
-                let input = get_user_input();
+                let input = match get_user_input() {
+                    None => return,
+                    Some(line) => line,
+                };
+                println!("{}", &input);
                 zvm.handle_input(input);
             }
         }

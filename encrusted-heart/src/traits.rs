@@ -85,7 +85,9 @@ impl BaseUI {
     }
 
     pub fn status_line(&self) -> Option<(&str, &str)> {
-        self.status_line.as_ref().map(|(l, r)| (l.as_str(), r.as_str()))
+        self.status_line
+            .as_ref()
+            .map(|(l, r)| (l.as_str(), r.as_str()))
     }
 
     pub fn resolve_upper_height(&mut self) {

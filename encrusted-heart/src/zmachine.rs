@@ -2220,15 +2220,22 @@ impl<ZUI: UI> Zmachine<ZUI> {
         };
     }
 
-    fn do_print_table(&mut self, zstring: u16, width: u16, height: Option<u16>, skip: Option<u16>) {
-        // assert!(
-        //     height.is_none() && skip.is_none(),
-        //     "Full printing of tables is not yet implemented!"
-        // );
-
-        let data = self.memory.read(zstring as usize, width as usize).to_vec();
-        if let Ok(string) = str::from_utf8(&data) {
-            self.print(string)
+    fn do_print_table(&mut self, mut zstring: u16, width: u16, height: Option<u16>, skip: Option<u16>) {
+        // TODO: this isn't quite the right behaviour in the upper window...
+        // IIUC, we should be returning to the original column for each line instead of column 1,
+        // which is the current behaviour on \n.
+        let mut height = height.unwrap_or(1);
+        let stride = width + skip.unwrap_or(0);
+        while height > 0 {
+            let data = self.memory.read(zstring as usize, width as usize).to_vec();
+            if let Ok(string) = str::from_utf8(&data) {
+                self.print(string)
+            }
+            if height > 1 {
+                self.print("\n")
+            }
+            height -= 1;
+            zstring += stride;
         }
     }
 

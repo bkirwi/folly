@@ -1,7 +1,0 @@
-language: rust
-
-before_install:
-  - nvm install node
-
-script:
-  - npm test

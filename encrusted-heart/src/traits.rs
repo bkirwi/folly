@@ -44,11 +44,6 @@ pub trait UI {
     fn set_window(&mut self, _window: Window) {}
     fn erase_window(&mut self, _window: Window) {}
     fn set_cursor(&mut self, _line: u16, _column: u16) {}
-    // fn set_text_style(&mut self, _text_style: TextStyle) {}
-
-    // only used by web ui
-    fn flush(&mut self);
-    fn message(&self, mtype: &str, msg: &str);
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -204,8 +199,4 @@ impl UI for BaseUI {
             self.upper_cursor = (to_index(line), to_index(column));
         }
     }
-
-    fn flush(&mut self) {}
-
-    fn message(&self, _mtype: &str, _msg: &str) {}
 }

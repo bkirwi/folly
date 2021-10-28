@@ -15,6 +15,7 @@ use crate::quetzal::QuetzalSave;
 use crate::traits::{TextStyle, Window, UI};
 use crate::zscii::{ZChar, DEFAULT_UNICODE_TABLE};
 use std::cmp::Ordering;
+use std::convert::TryInto;
 
 #[derive(Debug)]
 enum ZStringState {
@@ -131,6 +132,7 @@ pub struct Zmachine<ZUI> {
     routine_offset: usize,
     string_offset: usize,
     alphabet: [Vec<String>; 3],
+    unicode_table: Option<Vec<char>>,
     abbrev_table: usize,
     separators: Vec<char>,
     dictionary: HashMap<String, usize>,
@@ -165,6 +167,30 @@ impl<ZUI> Zmachine<ZUI> {
             Zmachine::<ZUI>::default_alphabet()
         };
 
+        let unicode_table = if version >= 5 {
+            let address = memory.read_word(0x36) as usize;
+            let size = memory.read_word(address) as usize;
+            if size >= 4 {
+                let table_address = memory.read_word(address + 8) as usize;
+                if table_address == 0 {
+                    None
+                } else {
+                    let mut table_reader = memory.get_reader(table_address);
+                    let table_size = table_reader.word() as usize;
+                    let mut chars = Vec::with_capacity(table_size);
+                    for _ in 0..table_size {
+                        chars.push((table_reader.word() as u32).try_into().unwrap_or('?'));
+                    }
+                    Some(chars)
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+
         let mut zvm = Zmachine {
             version,
             ui,
@@ -177,6 +203,7 @@ impl<ZUI> Zmachine<ZUI> {
             pc: initial_pc,
             frames: vec![Frame::empty()],
             alphabet,
+            unicode_table,
             abbrev_table: memory.read_word(0x18) as usize,
             separators: Vec::new(),
             dictionary: HashMap::new(),
@@ -483,6 +510,17 @@ impl<ZUI> Zmachine<ZUI> {
         length
     }
 
+    pub fn unicode_table(&self) -> &[char] {
+        match self.unicode_table.as_ref() {
+            None => DEFAULT_UNICODE_TABLE,
+            Some(v) => &*v,
+        }
+    }
+
+    fn bytes_to_string(&self, chars: &[u8]) -> String {
+        chars.iter().map(|v| ZChar(*v).to_char(&self.unicode_table())).collect()
+    }
+
     /// The interpreter provides some information about itself to the running game
     /// via special memory locations. This is important to set for both new games
     /// and on restarts (in case the old and new interpreter had different values.)
@@ -512,8 +550,8 @@ impl<ZUI> Zmachine<ZUI> {
         self.memory.write_word(0x10, flags2);
 
         // Claim to satisfy standard version 1.0.
-        // self.memory.write_byte(0x32, 1);
-        // self.memory.write_byte(0x33, 0);
+        self.memory.write_byte(0x32, 1);
+        self.memory.write_byte(0x33, 0);
     }
 
     fn populate_dictionary(&mut self) {
@@ -1546,16 +1584,15 @@ impl<ZUI: UI> Zmachine<ZUI> {
                         continue;
                     }
 
-                    let b = if c.is_ascii() {
-                        c as u8
-                    } else {
-                        let position = DEFAULT_UNICODE_TABLE.iter().position(|c0| *c0 == c);
-                        match position {
-                            None => continue,
-                            Some(i) => 155 + i as u8,
-                        }
+                    // the same logic as self.unicode_table(), but inlined for lifetimey reasons
+                    let table = match self.unicode_table.as_ref() {
+                        None => DEFAULT_UNICODE_TABLE,
+                        Some(table) => &*table,
                     };
-                    writer.byte(b);
+
+                    if let Some(zch) = ZChar::from_char(c, table) {
+                        writer.byte(zch.0);
+                    }
                 }
                 *end = writer.position();
             }
@@ -2179,8 +2216,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let num_chars = self.memory.read_byte(text_addr as usize + 1);
         assert!(num_chars <= max_chars);
         let string = self.memory.read(text_addr as usize + 2, num_chars as usize);
-        // TODO: not really utf8 of course!
-        let text = str::from_utf8(string).expect("Invalid utf8!!").to_string();
+        let text: String = self.bytes_to_string(string);
         self.tokenise(&text, parse_addr as usize);
     }
 
@@ -2228,9 +2264,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let stride = width + skip.unwrap_or(0);
         while height > 0 {
             let data = self.memory.read(zstring as usize, width as usize).to_vec();
-            if let Ok(string) = str::from_utf8(&data) {
-                self.print(string)
-            }
+            self.print(&self.bytes_to_string(&data));
+
             if height > 1 {
                 self.print("\n")
             }

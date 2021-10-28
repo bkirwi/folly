@@ -11,11 +11,12 @@ pub struct ZChar(pub u8);
 impl ZChar {
     pub const DELETE: ZChar = ZChar(8);
     pub const RETURN: ZChar = ZChar(13);
+    pub const ESC: ZChar = ZChar(27);
+
     pub const UP: ZChar = ZChar(129);
     pub const DOWN: ZChar = ZChar(130);
     pub const LEFT: ZChar = ZChar(131);
     pub const RIGHT: ZChar = ZChar(132);
-    pub const ESC: ZChar = ZChar(27);
 
     pub fn keypad(digit: u8) -> ZChar {
         assert!(digit <= 9);

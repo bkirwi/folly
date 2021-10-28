@@ -284,7 +284,7 @@ fn main() {
                             Key::Down => ZChar::DOWN,
                             Key::Left => ZChar::LEFT,
                             Key::Right => ZChar::RIGHT,
-                            Key::Char(c) => match ZChar::from_char(c, &[]) {
+                            Key::Char(c) => match ZChar::from_char(c, zvm.unicode_table()) {
                                 None => continue,
                                 Some(zch) => zch,
                             },

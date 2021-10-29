@@ -93,6 +93,10 @@ impl BaseUI {
         &self.upper_lines
     }
 
+    pub fn output(&self) -> &[BaseOutput] {
+        &self.output
+    }
+
     pub fn drain_output(&mut self) -> Vec<BaseOutput> {
         self.cleared = false;
         std::mem::take(&mut self.output)

@@ -38,6 +38,8 @@ use regex::Regex;
 use std::cell::Cell;
 use std::rc::Rc;
 
+use encrusted::dict::*;
+
 /*
 For inconsolata, height / width = 0.4766444.
 To match the x-height of garamond, we want about 75% the size.
@@ -54,11 +56,6 @@ const CHARS_PER_LINE: usize = 64;
 
 const SECTION_BREAK: &str = "* * *";
 
-#[derive(Debug, Clone)]
-struct Dict(BTreeSet<String>);
-
-const PUNCTUATION: &str = " .,\"";
-
 lazy_static! {
     static ref ROMAN: Font<'static> =
         Font::from_bytes(include_bytes!("../fonts/EBGaramond-Regular.ttf").as_ref()).unwrap();
@@ -68,84 +65,6 @@ lazy_static! {
         Font::from_bytes(include_bytes!("../fonts/EBGaramond-Bold.ttf").as_ref()).unwrap();
     static ref MONOSPACE: Font<'static> =
         Font::from_bytes(include_bytes!("../fonts/Inconsolata-Regular.ttf").as_ref()).unwrap();
-}
-
-impl Dict {
-    const VALID: f32 = 1.0;
-    // Tradeoff: you want this to be small, since any plausible input
-    // is likely to do something more useful than one the game doesn't understand.
-    // However! If a word is not in the dictionary, then choosing a totally
-    // implausible word quite far from the input may make the recognizer seem
-    // worse than it is.
-    // The right value here will depend on both the quality of the model,
-    // dictionary size, and some more subjective things.
-    const INVALID: f32 = 0.001;
-
-    fn contains_prefix(&self, prefix: &String) -> bool {
-        self.0
-            .range::<String, _>(prefix..)
-            .next()
-            .map_or(false, |c| c.starts_with(prefix))
-    }
-}
-
-impl LanguageModel for &Dict {
-    fn odds(&self, input: &str, ch: char) -> f32 {
-        let Dict(words) = self;
-
-        // TODO: use the real lexing rules from https://inform-fiction.org/zmachine/standards/z1point1/sect13.html
-        if !ch.is_ascii_lowercase() && !(PUNCTUATION.contains(ch)) {
-            return Dict::INVALID;
-        }
-
-        let word_start = input
-            .rfind(|c| PUNCTUATION.contains(c))
-            .map(|i| i + 1)
-            .unwrap_or(0);
-
-        let prefix = &input[word_start..];
-
-        // The dictionary only has the first six characters of each word!
-        if prefix.len() >= 6 {
-            return Dict::VALID;
-        }
-
-        // If the current character is punctuation, we check that the prefix is a valid word
-        if PUNCTUATION.contains(ch) {
-            return if words.contains(prefix) || prefix.is_empty() {
-                Dict::VALID
-            } else {
-                Dict::INVALID
-            };
-        }
-
-        // Assume all numbers are valid inputs. (Names that include them normally don't put them in the dictionary.)
-        // TODO: think about what happens if dictionary words contain digits.
-        if ch.is_ascii_digit() {
-            let starts_with_digit = prefix.chars().next().map_or(true, |c| c.is_ascii_digit());
-            return if starts_with_digit {
-                Dict::VALID
-            } else {
-                Dict::INVALID
-            };
-        }
-
-        let mut prefix_string = prefix.to_string();
-        if self.contains_prefix(&prefix_string) {
-            prefix_string.push(ch);
-            if self.contains_prefix(&prefix_string) {
-                Dict::VALID
-            } else {
-                Dict::INVALID
-            }
-        } else {
-            Dict::VALID
-        }
-    }
-
-    fn odds_end(&self, prefix: &str) -> f32 {
-        self.odds(prefix, ' ')
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -160,6 +79,7 @@ enum Msg {
     LoadGame(PathBuf),
     Restore(PathBuf, SaveMeta),
     Resume,
+    ReadChar(ZChar),
 }
 
 enum Element {
@@ -178,6 +98,7 @@ enum Element {
         message: Option<Msg>,
     },
     UpperWindow(Vec<Text<Msg>>),
+    CharInput,
 }
 
 impl Element {
@@ -206,14 +127,13 @@ impl Widget for Element {
             Element::Input { area: i, .. } => i.size().y,
             Element::File { .. } => LINE_HEIGHT * 2,
             Element::UpperWindow(lines) => LINE_HEIGHT * lines.len() as i32,
+            Element::CharInput => LINE_HEIGHT,
         };
         Vector2::new(width, height)
     }
 
     fn render(&self, handlers: &mut Handlers<Msg>, mut frame: Frame) {
-        let margin_width = (DISPLAYWIDTH as i32 - LINE_LENGTH) / 2;
-
-        let mut prompt_frame = frame.split_off(Side::Left, margin_width);
+        let mut prompt_frame = frame.split_off(Side::Left, LEFT_MARGIN);
         match self {
             Element::Input {
                 id,
@@ -242,7 +162,7 @@ impl Widget for Element {
             }
         }
 
-        frame.split_off(Side::Right, margin_width);
+        frame.split_off(Side::Right, DISPLAYWIDTH as i32 - LEFT_MARGIN - LINE_LENGTH);
 
         match self {
             Element::Break(_) => {}
@@ -274,10 +194,26 @@ impl Widget for Element {
                     line.render(handlers, frame.split_off(Side::Top, LINE_HEIGHT));
                 }
             }
+            Element::CharInput => {
+                let text = Text::builder(LINE_HEIGHT, &*ROMAN)
+                    .words("Hit ")
+                    .message(Msg::ReadChar(ZChar::RETURN))
+                    .words("return")
+                    .no_message()
+                    .words(", ")
+                    .message(Msg::ReadChar(ZChar(' ' as u8)))
+                    .words("space")
+                    .no_message()
+                    .words(" or whatever!")
+                    .into_text();
+
+                text.render_placed(handlers, frame, 0.5, 0.0)
+            }
         }
     }
 }
 
+#[derive(Clone)]
 struct Header {
     lines: Vec<Text>,
 }
@@ -490,11 +426,11 @@ impl Session {
 
         let lines = Text::builder(LINE_HEIGHT, &self.font.roman)
             .words("Select a saved game to restore from the list below, or ")
-            .font(&*BOLD, LINE_HEIGHT as f32)
+            .font(&*BOLD)
             .message(Msg::Resume)
             .words("tap here")
             .no_message()
-            .font(&*ROMAN, LINE_HEIGHT as f32)
+            .font(&*ROMAN)
             .words(continue_message)
             .wrap(LINE_LENGTH, true);
 
@@ -601,7 +537,7 @@ impl Session {
                     LINE_HEIGHT
                 };
 
-                text_builder = text_builder.font(font, scale as f32);
+                text_builder = text_builder.font(font).scale(scale as f32);
                 for (i, word) in content.split(' ').enumerate() {
                     if i != 0 {
                         text_builder = text_builder.space();
@@ -631,6 +567,17 @@ impl Session {
             self.pages.maybe_new_page(LINE_HEIGHT);
         }
 
+        // So, there are three things the upper window is typically used for:
+        // - The status line. This is recognizable since it uses reverse video on the whole row.
+        //   It's usually one line, but eg. Curses has a two-line status.
+        //   We wish to render this as the running head of the page, book-style.
+        // - A quote box. This is typically a reverse-video box on an empty field.
+        //   It's often combined with a status line.
+        //   We're happy rendering this as an ordinary block quotation in text.
+        // - A menu. These are used for help our about pages, and sometimes story elements.
+        //   These can have ~arbitrary content, which means they can't be reliably distinguished
+        //   from quote boxes & status lines. Wise to choose a representation for quote boxes and
+        //   status lines that doesn't look awful for menus, then.
         let status = if let Some((left, right)) = self.zvm.ui.status_line() {
             // 4 chars minimum padding + 8 for the score/time is reduces the chars available by 12
             let text = format!(
@@ -740,6 +687,11 @@ impl Session {
                 self.advance()
             }
             Step::Restore => result,
+            Step::ReadChar => {
+                self.pages.push_advance_space();
+                self.pages.push_element(Element::CharInput);
+                result
+            }
             _ => {
                 // Add a prompt
                 self.pages.maybe_new_page(LINE_HEIGHT * 3);
@@ -1051,6 +1003,13 @@ impl Game {
                     }
                     let _state = session.advance();
                     session.restore = None;
+                }
+            }
+            Msg::ReadChar(zch) => {
+                if let GameState::Playing { session } = &mut self.state {
+                    session.pages.contents.last_mut().unwrap().1.pop();
+                    session.zvm.handle_read_char(zch);
+                    session.advance();
                 }
             }
         }

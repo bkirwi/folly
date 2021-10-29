@@ -190,7 +190,6 @@ impl<ZUI> Zmachine<ZUI> {
             None
         };
 
-
         let mut zvm = Zmachine {
             version,
             ui,
@@ -518,7 +517,10 @@ impl<ZUI> Zmachine<ZUI> {
     }
 
     fn bytes_to_string(&self, chars: &[u8]) -> String {
-        chars.iter().map(|v| ZChar(*v).to_char(&self.unicode_table())).collect()
+        chars
+            .iter()
+            .map(|v| ZChar(*v).to_char(&self.unicode_table()))
+            .collect()
     }
 
     /// The interpreter provides some information about itself to the running game

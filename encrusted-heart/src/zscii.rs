@@ -5,7 +5,7 @@ pub const DEFAULT_UNICODE_TABLE: &[char] = &[
     'Æ', 'ç', 'Ç', 'þ', 'ð', 'Þ', 'Ð', '£', 'œ', 'Œ', '¡', '¿',
 ];
 
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
 pub struct ZChar(pub u8);
 
 impl ZChar {

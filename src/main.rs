@@ -234,7 +234,7 @@ impl Widget for Header {
 }
 
 struct Page {
-    contents: Vec<(Rc<Header>, Stack<Element>)>,
+    contents: Vec<(Header, Stack<Element>)>,
     page_number: usize,
 }
 
@@ -242,7 +242,7 @@ impl Page {
     pub fn new() -> Page {
         Page {
             contents: vec![(
-                Rc::new(Header { lines: vec![] }),
+                Header { lines: vec![] },
                 Stack::new(Vector2::new(DISPLAYWIDTH as i32, TEXT_AREA_HEIGHT)),
             )],
             page_number: 0,
@@ -276,7 +276,7 @@ impl Page {
 
     pub fn replace_header(&mut self, header: Header) {
         let current = &mut self.contents.last_mut().unwrap().0;
-        *current = Rc::new(header);
+        *current = header;
     }
 
     fn push_advance_space(&mut self) {

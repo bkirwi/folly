@@ -393,7 +393,6 @@ struct SaveMeta {
 }
 
 struct Session {
-    font: Fonts,
     zvm: Zmachine<BaseUI>,
     zvm_state: Step,
     dict: Arc<Dict>,
@@ -443,7 +442,7 @@ impl Session {
             " to return to where you left off."
         };
 
-        let lines = Text::builder(LINE_HEIGHT, &self.font.roman)
+        let lines = Text::builder(LINE_HEIGHT, &*ROMAN)
             .words("Select a saved game to restore from the list below, or ")
             .font(&*BOLD)
             .message(Msg::Resume)
@@ -538,16 +537,16 @@ impl Session {
                 continue;
             }
 
-            let mut text_builder = Text::builder(44, &self.font.roman);
+            let mut text_builder = Text::builder(44, &*ROMAN);
 
             for BaseOutput { style, content } in line {
                 // In theory we may want to support multiple of these at once,
                 // but we're not required to, so we don't just yet.
                 let font = match (style.fixed_pitch(), style.bold(), style.italic()) {
-                    (true, _, _) => &self.font.monospace,
-                    (_, true, _) => &self.font.bold,
-                    (_, _, true) => &self.font.italic,
-                    (_, _, _) => &self.font.roman,
+                    (true, _, _) => &*MONOSPACE,
+                    (_, true, _) => &*BOLD,
+                    (_, _, true) => &*ITALIC,
+                    (_, _, _) => &*ROMAN,
                 };
 
                 let scale = if style.fixed_pitch() {
@@ -662,7 +661,7 @@ impl Session {
             Step::Save(data) => {
                 self.pages.push_element(Element::Line(
                     false,
-                    Text::line(LINE_HEIGHT, &self.font.roman, "Saving game..."),
+                    Text::line(LINE_HEIGHT, &*ROMAN, "Saving game..."),
                 ));
 
                 let now = chrono::offset::Local::now();
@@ -694,7 +693,7 @@ impl Session {
                 self.pages.maybe_new_page(LINE_HEIGHT * 3);
                 self.pages.push_element(Element::Break(LINE_HEIGHT / 2));
                 self.pages.push_element(Element::file_display(
-                    &self.font.roman,
+                    &*ROMAN,
                     &meta.status_line.unwrap_or("unknown".to_string()),
                     save_path.to_string_lossy().borrow(),
                     None,
@@ -721,7 +720,7 @@ impl Session {
                 self.pages.push_element(Element::Input {
                     id: input_id,
                     active: self.active_input.clone(),
-                    prompt: ui::Text::literal(LINE_HEIGHT, &self.font.roman, "☞"),
+                    prompt: ui::Text::literal(LINE_HEIGHT, &*ROMAN, "☞"),
                     area: ui::InputArea::new(Vector2::new(600, 88)).on_ink(None),
                     message: Msg::Page,
                 });
@@ -750,14 +749,6 @@ impl Session {
     }
 }
 
-#[derive(Clone)]
-struct Fonts {
-    roman: Font<'static>,
-    italic: Font<'static>,
-    bold: Font<'static>,
-    monospace: Font<'static>,
-}
-
 enum GameState {
     // No game loaded... choose from a list.
     Init { games: Pages },
@@ -766,9 +757,7 @@ enum GameState {
 }
 
 struct Game {
-    bounds: BoundingBox,
     state: GameState,
-    fonts: Fonts,
     ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>,
     awaiting_ink: usize,
     root_dir: PathBuf,
@@ -827,7 +816,6 @@ impl Game {
             fs::create_dir(&save_root)?;
         }
         let session = Session {
-            font: self.fonts.clone(),
             zvm,
             zvm_state: Step::Done,
             dict: Arc::new(dict),
@@ -881,18 +869,11 @@ impl Game {
         games
     }
 
-    fn init(
-        bounds: BoundingBox,
-        fonts: Fonts,
-        ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>,
-        root_dir: PathBuf,
-    ) -> Game {
+    fn init(ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>, root_dir: PathBuf) -> Game {
         Game {
-            bounds,
             state: GameState::Init {
-                games: Game::game_page(&fonts.roman, &root_dir),
+                games: Game::game_page(&*ROMAN, &root_dir),
             },
-            fonts: fonts,
             ink_tx,
             awaiting_ink: 0,
             root_dir,
@@ -900,7 +881,6 @@ impl Game {
     }
 
     pub fn update(&mut self, action: Action, message: Msg) {
-        let text_area_shape = self.bounds.size();
         match message {
             Msg::Input { page, line, margin } => {
                 if let GameState::Playing { session } = &mut self.state {
@@ -985,7 +965,7 @@ impl Game {
                             }
                             Step::Done => {
                                 self.state = GameState::Init {
-                                    games: Game::game_page(&self.fonts.roman, &self.root_dir),
+                                    games: Game::game_page(&*ROMAN, &self.root_dir),
                                 };
                             }
                             _ => {}
@@ -1060,16 +1040,6 @@ fn main() {
         std::env::var("ENCRUSTED_ROOT").unwrap_or("/home/root/encrusted".to_string()),
     );
 
-    let fonts = Fonts {
-        roman: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Regular.ttf").as_ref())
-            .unwrap(),
-        italic: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Italic.ttf").as_ref())
-            .unwrap(),
-        bold: Font::from_bytes(include_bytes!("../fonts/EBGaramond-Bold.ttf").as_ref()).unwrap(),
-        monospace: Font::from_bytes(include_bytes!("../fonts/Inconsolata-Regular.ttf").as_ref())
-            .unwrap(),
-    };
-
     let mut app = armrest::app::App::new();
 
     let (ink_tx, ink_rx) = mpsc::channel::<(Ink, Arc<Dict>, usize)>();
@@ -1084,12 +1054,7 @@ fn main() {
         eprintln!("Error when opening ink log file: {}", ioerr);
     }
 
-    let page_bounds = BoundingBox::new(
-        Point2::new(LEFT_MARGIN, TOP_MARGIN),
-        Point2::new(LEFT_MARGIN + LINE_LENGTH, TOP_MARGIN + TEXT_AREA_HEIGHT),
-    );
-
-    let game = Game::init(page_bounds, fonts, ink_tx, root_dir);
+    let game = Game::init(ink_tx, root_dir);
 
     let _thread = thread::spawn(move || {
         let mut recognizer: Recognizer<Spline> = ml::Recognizer::new().unwrap();

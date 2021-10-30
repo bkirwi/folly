@@ -234,19 +234,36 @@ impl Widget for Header {
 }
 
 struct Page {
-    contents: Vec<(Header, Stack<Element>)>,
+    header: Header,
+    body: Stack<Element>,
+}
+
+struct Pages {
+    contents: Vec<Page>,
     page_number: usize,
 }
 
-impl Page {
-    pub fn new() -> Page {
-        Page {
-            contents: vec![(
-                Header { lines: vec![] },
-                Stack::new(Vector2::new(DISPLAYWIDTH as i32, TEXT_AREA_HEIGHT)),
-            )],
+impl Pages {
+    pub fn new() -> Pages {
+        Pages {
+            contents: vec![Page {
+                header: Header { lines: vec![] },
+                body: Stack::new(Vector2::new(DISPLAYWIDTH as i32, TEXT_AREA_HEIGHT)),
+            }],
             page_number: 0,
         }
+    }
+
+    pub fn current_mut(&mut self) -> &mut Page {
+        &mut self.contents[self.page_number]
+    }
+
+    pub fn last(&self) -> &Page {
+        self.contents.last().expect("Never empty!")
+    }
+
+    pub fn last_mut(&mut self) -> &mut Page {
+        self.contents.last_mut().expect("Never empty!")
     }
 
     pub fn page_relative(&mut self, count: isize) {
@@ -262,26 +279,28 @@ impl Page {
     }
 
     fn remaining(&self) -> Vector2<i32> {
-        self.contents.last().unwrap().1.remaining()
+        self.last().body.remaining()
     }
 
     pub fn maybe_new_page(&mut self, padding: i32) {
         let space_remaining = self.remaining();
         if padding > space_remaining.y {
-            let (header, body) = self.contents.last().unwrap();
-            self.contents
-                .push((header.clone(), Stack::new(body.size())))
+            let Page { header, body } = self.contents.last().unwrap();
+            self.contents.push(Page {
+                header: header.clone(),
+                body: Stack::new(body.size()),
+            });
         }
     }
 
     pub fn replace_header(&mut self, header: Header) {
-        let current = &mut self.contents.last_mut().unwrap().0;
+        let current = &mut self.contents.last_mut().unwrap().header;
         *current = header;
     }
 
     fn push_advance_space(&mut self) {
         let height = LINE_HEIGHT.min(self.remaining().y);
-        let pad_previous_element = match self.contents.last().unwrap().1.last() {
+        let pad_previous_element = match self.contents.last().unwrap().body.last() {
             Some(Element::Line(..)) => true,
             Some(Element::File { .. }) => true,
             _ => false,
@@ -292,18 +311,18 @@ impl Page {
         self.contents
             .last_mut()
             .unwrap()
-            .1
+            .body
             .push(Element::Break(height));
     }
 
     fn push_element(&mut self, element: Element) {
         self.maybe_new_page(element.size().y);
-        self.contents.last_mut().unwrap().1.push(element);
+        self.contents.last_mut().unwrap().body.push(element);
     }
 
     // push a section break, if one is needed (ie. we're not already on a fresh page, and we have the room)
     fn push_section_break(&mut self) {
-        let page = &self.contents.last().unwrap().1;
+        let page = &self.contents.last().unwrap().body;
         if page.is_empty() {
             return;
         }
@@ -322,7 +341,7 @@ impl Page {
     }
 }
 
-impl Widget for Page {
+impl Widget for Pages {
     type Message = Msg;
 
     fn size(&self) -> Vector2<i32> {
@@ -332,7 +351,7 @@ impl Widget for Page {
     fn render(&self, handlers: &mut Handlers<Self::Message>, mut frame: Frame) {
         handlers.push(&frame, Msg::Page);
 
-        let (header, body) = &self.contents[self.page_number];
+        let Page { header, body } = &self.contents[self.page_number];
 
         header
             .void()
@@ -380,8 +399,8 @@ struct Session {
     dict: Arc<Dict>,
     next_input: usize,
     active_input: Rc<Cell<usize>>,
-    pages: Page,
-    restore: Option<Page>,
+    pages: Pages,
+    restore: Option<Pages>,
     save_root: PathBuf,
 }
 
@@ -416,7 +435,7 @@ impl Session {
     }
 
     pub fn restore_menu(&mut self, saves: Vec<PathBuf>, initial_run: bool) {
-        let mut page = Page::new();
+        let mut page = Pages::new();
 
         let continue_message = if initial_run {
             " to start from the beginning."
@@ -708,10 +727,10 @@ impl Session {
                 });
 
                 let last_page = self.pages.contents.len() - 1;
-                let next_element = self.pages.contents.last().unwrap().1.len() - 1;
+                let next_element = self.pages.contents.last().unwrap().body.len() - 1;
 
                 if let Some(Element::Input { message, area, .. }) =
-                    self.pages.contents.last_mut().unwrap().1.last_mut()
+                    self.pages.contents.last_mut().unwrap().body.last_mut()
                 {
                     *area = ui::InputArea::new(Vector2::new(600, 88)).on_ink(Some(Msg::Input {
                         page: last_page,
@@ -741,7 +760,7 @@ struct Fonts {
 
 enum GameState {
     // No game loaded... choose from a list.
-    Init { games: Page },
+    Init { games: Pages },
     // We're in the middle of a game!
     Playing { session: Session },
 }
@@ -814,7 +833,7 @@ impl Game {
             dict: Arc::new(dict),
             next_input: 0,
             active_input: Rc::new(Cell::new(usize::MAX)),
-            pages: Page::new(),
+            pages: Pages::new(),
             restore: None,
             save_root,
         };
@@ -822,8 +841,8 @@ impl Game {
         Ok(session)
     }
 
-    fn game_page(font: &Font<'static>, root_dir: &Path) -> Page {
-        let mut games = Page::new();
+    fn game_page(font: &Font<'static>, root_dir: &Path) -> Pages {
+        let mut games = Pages::new();
 
         let header = Text::literal(LINE_HEIGHT * 3, font, "ENCRUSTED");
         games.push_element(Element::Line(true, header));
@@ -885,7 +904,7 @@ impl Game {
         match message {
             Msg::Input { page, line, margin } => {
                 if let GameState::Playing { session } = &mut self.state {
-                    let element = &mut session.pages.contents[page].1[line];
+                    let element = &mut session.pages.contents[page].body[line];
                     match element {
                         Element::Input {
                             id, active, area, ..
@@ -1007,7 +1026,7 @@ impl Game {
             }
             Msg::ReadChar(zch) => {
                 if let GameState::Playing { session } = &mut self.state {
-                    session.pages.contents.last_mut().unwrap().1.pop();
+                    session.pages.last_mut().body.pop();
                     session.zvm.handle_read_char(zch);
                     session.advance();
                 }

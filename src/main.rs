@@ -18,7 +18,9 @@ use armrest::{ml, ui};
 
 use armrest::ink::Ink;
 use armrest::ml::{LanguageModel, Recognizer, Spline};
-use armrest::ui::{Action, BoundingBox, Frame, Handlers, Side, Stack, Text, Void, Widget};
+use armrest::ui::{
+    Action, Fragment, Frame, Handlers, Line, Region, Side, Stack, Text, Void, Widget,
+};
 
 use libremarkable::cgmath::{Point2, Vector2};
 
@@ -38,6 +40,7 @@ use regex::Regex;
 use std::cell::Cell;
 use std::rc::Rc;
 
+use armrest::app::{Applet, Component};
 use encrusted::dict::*;
 
 /*
@@ -69,12 +72,9 @@ lazy_static! {
 
 #[derive(Clone, Debug)]
 enum Msg {
-    Input {
-        page: usize,
-        line: usize,
-        margin: bool,
-    },
-    Page,
+    Input(Ink),
+    Submit,
+    PageRelative(isize),
     RecognizedText(usize, String),
     LoadGame(PathBuf),
     Restore(PathBuf, SaveMeta),
@@ -86,11 +86,9 @@ enum Element {
     Break(i32),
     Line(bool, Text<Msg>),
     Input {
-        id: usize,
-        active: Rc<Cell<usize>>,
+        active: bool,
         prompt: Text<Msg>,
-        area: ui::InputArea<Msg>,
-        message: Msg,
+        ink: Ink,
     },
     File {
         big_text: Text,
@@ -124,7 +122,7 @@ impl Widget for Element {
         let height = match self {
             Element::Break(n) => *n,
             Element::Line(_, t) => t.size().y,
-            Element::Input { area: i, .. } => i.size().y,
+            Element::Input { .. } => LINE_HEIGHT,
             Element::File { .. } => LINE_HEIGHT * 2,
             Element::UpperWindow(lines) => LINE_HEIGHT * lines.len() as i32,
             Element::CharInput => LINE_HEIGHT,
@@ -132,17 +130,11 @@ impl Widget for Element {
         Vector2::new(width, height)
     }
 
-    fn render(&self, handlers: &mut Handlers<Msg>, mut frame: Frame) {
+    fn render<'a>(&'a self, handlers: &'a mut Handlers<Self::Message>, mut frame: Frame<'a>) {
         let mut prompt_frame = frame.split_off(Side::Left, LEFT_MARGIN);
         match self {
-            Element::Input {
-                id,
-                active,
-                prompt,
-                message,
-                ..
-            } if *id == active.get() => {
-                handlers.push(&prompt_frame, message.clone());
+            Element::Input { active, prompt, .. } if *active => {
+                handlers.on_tap(&prompt_frame, Msg::Submit);
                 prompt_frame.split_off(Side::Right, 12);
                 prompt.render_placed(handlers, prompt_frame, 1.0, 0.5);
             }
@@ -173,8 +165,16 @@ impl Widget for Element {
                     t.render(handlers, frame);
                 }
             }
-            Element::Input { area, .. } => {
-                area.render(handlers, frame);
+            Element::Input {
+                active,
+                prompt,
+                ink,
+            } => {
+                if *active {
+                    handlers.on_ink(&frame, |ink| Msg::Input(ink))
+                }
+                frame.push_annotation(ink);
+                Line { y: LINE_HEIGHT - 8 }.render(frame);
             }
             Element::File {
                 big_text,
@@ -182,7 +182,7 @@ impl Widget for Element {
                 message,
             } => {
                 if let Some(m) = message {
-                    handlers.push(&frame, m.clone());
+                    handlers.on_tap(&frame, m.clone());
                 }
                 big_text
                     .discard()
@@ -303,6 +303,7 @@ impl Pages {
         let pad_previous_element = match self.contents.last().unwrap().body.last() {
             Some(Element::Line(..)) => true,
             Some(Element::File { .. }) => true,
+            Some(Element::Input { .. }) => true,
             _ => false,
         };
         if height == 0 || !pad_previous_element {
@@ -349,7 +350,8 @@ impl Widget for Pages {
     }
 
     fn render(&self, handlers: &mut Handlers<Self::Message>, mut frame: Frame) {
-        handlers.push(&frame, Msg::Page);
+        handlers.on_swipe(&frame, Side::Left, Msg::PageRelative(1));
+        handlers.on_swipe(&frame, Side::Right, Msg::PageRelative(-1));
 
         let Page { header, body } = &self.contents[self.page_number];
 
@@ -396,8 +398,6 @@ struct Session {
     zvm: Zmachine<BaseUI>,
     zvm_state: Step,
     dict: Arc<Dict>,
-    next_input: usize,
-    active_input: Rc<Cell<usize>>,
     pages: Pages,
     restore: Option<Pages>,
     save_root: PathBuf,
@@ -572,6 +572,11 @@ impl Session {
     }
 
     pub fn advance(&mut self) -> Step {
+        // If there is a trailing input element, mark as inactive
+        if let Some(Element::Input { active, .. }) = &mut self.pages.last_mut().body.last_mut() {
+            *active = false;
+        }
+
         // if the upper window is displaying some big quote box, collapse it down.
         self.zvm.ui.resolve_upper_height();
 
@@ -655,6 +660,7 @@ impl Session {
         self.pages.replace_header(Header { lines: status });
 
         let buffer = self.zvm.ui.drain_output();
+        self.pages.push_advance_space();
         self.append_buffer(buffer);
 
         match result {
@@ -713,35 +719,12 @@ impl Session {
             _ => {
                 // Add a prompt
                 self.pages.maybe_new_page(LINE_HEIGHT * 3);
-
-                let input_id = self.next_input;
-                self.next_input += 1;
-                self.active_input.set(input_id);
+                self.pages.push_advance_space();
                 self.pages.push_element(Element::Input {
-                    id: input_id,
-                    active: self.active_input.clone(),
+                    active: true,
                     prompt: ui::Text::literal(LINE_HEIGHT, &*ROMAN, "☞"),
-                    area: ui::InputArea::new(Vector2::new(600, 88)).on_ink(None),
-                    message: Msg::Page,
+                    ink: Ink::new(),
                 });
-
-                let last_page = self.pages.contents.len() - 1;
-                let next_element = self.pages.contents.last().unwrap().body.len() - 1;
-
-                if let Some(Element::Input { message, area, .. }) =
-                    self.pages.contents.last_mut().unwrap().body.last_mut()
-                {
-                    *area = ui::InputArea::new(Vector2::new(600, 88)).on_ink(Some(Msg::Input {
-                        page: last_page,
-                        line: next_element,
-                        margin: false,
-                    }));
-                    *message = Msg::Input {
-                        page: last_page,
-                        line: next_element,
-                        margin: true,
-                    };
-                }
 
                 result
             }
@@ -819,8 +802,6 @@ impl Game {
             zvm,
             zvm_state: Step::Done,
             dict: Arc::new(dict),
-            next_input: 0,
-            active_input: Rc::new(Cell::new(usize::MAX)),
             pages: Pages::new(),
             restore: None,
             save_root,
@@ -879,50 +860,76 @@ impl Game {
             root_dir,
         }
     }
+}
 
-    pub fn update(&mut self, action: Action, message: Msg) {
+impl Widget for Game {
+    type Message = Msg;
+
+    fn size(&self) -> Vector2<i32> {
+        Vector2::new(DISPLAYWIDTH as i32, DISPLAYHEIGHT as i32)
+    }
+
+    fn render(&self, handlers: &mut Handlers<Msg>, frame: Frame) {
+        let current_pages = match &self.state {
+            GameState::Playing { session, .. } => match &session.restore {
+                None => &session.pages,
+                Some(saves) => saves,
+            },
+            GameState::Init { games } => games,
+        };
+
+        current_pages.render(handlers, frame);
+    }
+}
+
+impl Applet for Game {
+    type Upstream = ();
+
+    fn update(&mut self, message: Msg) -> Option<()> {
         match message {
-            Msg::Input { page, line, margin } => {
+            Msg::Input(ink) => {
                 if let GameState::Playing { session } = &mut self.state {
-                    let element = &mut session.pages.contents[page].body[line];
-                    match element {
-                        Element::Input {
-                            id, active, area, ..
-                        } if *id == active.get() => {
-                            let submit = match action {
-                                Action::Ink(ink) => {
-                                    if margin {
-                                        false
-                                    } else {
-                                        area.ink.append(ink, 0.5);
-                                        true
-                                    }
-                                }
-                                Action::Touch(_) if margin => area.ink.len() == 0,
-                                _ => false,
-                            };
-
-                            if submit {
-                                self.awaiting_ink += 1;
-                                self.ink_tx
-                                    .send((
-                                        area.ink.clone(),
-                                        session.dict.clone(),
-                                        self.awaiting_ink,
-                                    ))
-                                    .unwrap();
-                            }
-                        }
-                        _ => {
-                            eprintln!(
-                                "Strange: got input on an unexpected element. [page={}, line{}]",
-                                page, line
-                            );
+                    if let Some(Element::Input {
+                        active,
+                        prompt,
+                        ink: existing_ink,
+                    }) = &mut session.pages.last_mut().body.last_mut()
+                    {
+                        existing_ink.append(ink, 0.5);
+                        self.awaiting_ink += 1;
+                        self.ink_tx
+                            .send((
+                                existing_ink.clone(),
+                                session.dict.clone(),
+                                self.awaiting_ink,
+                            ))
+                            .unwrap();
+                    }
+                }
+            }
+            Msg::Submit => {
+                if let GameState::Playing { session } = &mut self.state {
+                    if let Some(Element::Input {
+                        active,
+                        prompt,
+                        ink: existing_ink,
+                    }) = &mut session.pages.last_mut().body.last_mut()
+                    {
+                        if existing_ink.len() == 0 {
+                            // submit the blank ink!
+                            self.awaiting_ink += 1;
+                            self.ink_tx
+                                .send((
+                                    existing_ink.clone(),
+                                    session.dict.clone(),
+                                    self.awaiting_ink,
+                                ))
+                                .unwrap();
                         }
                     }
                 }
             }
-            Msg::Page => {
+            Msg::PageRelative(count) => {
                 let current_pages = match &mut self.state {
                     GameState::Playing { session, .. } => match &mut session.restore {
                         None => &mut session.pages,
@@ -931,15 +938,7 @@ impl Game {
                     GameState::Init { games } => games,
                 };
 
-                if let Action::Touch(touch) = action {
-                    if let Some(side) = touch.to_swipe() {
-                        match side {
-                            Side::Left => current_pages.page_relative(1),
-                            Side::Right => current_pages.page_relative(-1),
-                            _ => {}
-                        }
-                    }
-                }
+                current_pages.page_relative(count)
             }
             Msg::RecognizedText(n, text) => {
                 if let GameState::Playing { session } = &mut self.state {
@@ -1006,32 +1005,14 @@ impl Game {
             }
             Msg::ReadChar(zch) => {
                 if let GameState::Playing { session } = &mut self.state {
-                    session.pages.last_mut().body.pop();
+                    // session.pages.last_mut().body.pop();
                     session.zvm.handle_read_char(zch);
                     session.advance();
                 }
             }
         }
-    }
-}
 
-impl Widget for Game {
-    type Message = Msg;
-
-    fn size(&self) -> Vector2<i32> {
-        Vector2::new(DISPLAYWIDTH as i32, DISPLAYHEIGHT as i32)
-    }
-
-    fn render(&self, handlers: &mut Handlers<Msg>, frame: Frame) {
-        let current_pages = match &self.state {
-            GameState::Playing { session, .. } => match &session.restore {
-                None => &session.pages,
-                Some(saves) => saves,
-            },
-            GameState::Init { games } => games,
-        };
-
-        current_pages.render(handlers, frame);
+        None
     }
 }
 
@@ -1043,7 +1024,7 @@ fn main() {
     let mut app = armrest::app::App::new();
 
     let (ink_tx, ink_rx) = mpsc::channel::<(Ink, Arc<Dict>, usize)>();
-    let mut text_tx = app.sender();
+    let mut wakeup = app.wakeup();
 
     let mut ink_log = OpenOptions::new()
         .append(true)
@@ -1054,33 +1035,32 @@ fn main() {
         eprintln!("Error when opening ink log file: {}", ioerr);
     }
 
-    let game = Game::init(ink_tx, root_dir);
+    let mut component = Component::with_sender(wakeup, |text_tx| {
+        let _thread = thread::spawn(move || {
+            let mut recognizer: Recognizer<Spline> = ml::Recognizer::new().unwrap();
 
-    let _thread = thread::spawn(move || {
-        let mut recognizer: Recognizer<Spline> = ml::Recognizer::new().unwrap();
+            for (i, dict, n) in ink_rx {
+                let string = recognizer
+                    .recognize(
+                        &i,
+                        &ml::Beam {
+                            size: 4,
+                            language_model: dict.as_ref(),
+                        },
+                    )
+                    .unwrap();
 
-        for (i, dict, n) in ink_rx {
-            let string = recognizer
-                .recognize(
-                    &i,
-                    &ml::Beam {
-                        size: 4,
-                        language_model: dict.as_ref(),
-                    },
-                )
-                .unwrap();
+                if let Ok(log) = &mut ink_log {
+                    writeln!(log, "{}\t{}", &string[0].0, i).expect("why not?");
+                    log.flush().expect("why not?");
+                }
 
-            if let Ok(log) = &mut ink_log {
-                writeln!(log, "{}\t{}", &string[0].0, i).expect("why not?");
-                log.flush().expect("why not?");
+                text_tx.send(Msg::RecognizedText(n, string[0].0.clone()))
             }
+        });
 
-            text_tx.send(Msg::RecognizedText(n, string[0].0.clone()))
-        }
+        Game::init(ink_tx, root_dir)
     });
 
-    app.run(game, |game, action, msg| {
-        game.update(action, msg);
-        Ok(())
-    })
+    app.run(&mut component);
 }

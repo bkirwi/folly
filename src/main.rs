@@ -19,7 +19,8 @@ use armrest::{ml, ui};
 use armrest::ink::Ink;
 use armrest::ml::{LanguageModel, Recognizer, Spline};
 use armrest::ui::{
-    Action, Fragment, Frame, Handlers, Line, Region, Side, Stack, Text, Void, Widget,
+    Action, Canvas, Fill, Fragment, Frame, Handlers, Image, Line, Region, Side, Stack, Text,
+    TextBuilder, Void, Widget,
 };
 
 use libremarkable::cgmath::{Point2, Vector2};
@@ -27,6 +28,7 @@ use libremarkable::cgmath::{Point2, Vector2};
 use libremarkable::framebuffer::common::{color, DISPLAYHEIGHT, DISPLAYWIDTH};
 
 use libremarkable::framebuffer::FramebufferDraw;
+use libremarkable::image;
 
 use itertools::{Itertools, Position};
 use rusttype::Font;
@@ -42,6 +44,7 @@ use std::rc::Rc;
 
 use armrest::app::{Applet, Component};
 use encrusted::dict::*;
+use encrusted::keyboard::Keyboard;
 
 /*
 For inconsolata, height / width = 0.4766444.
@@ -57,7 +60,7 @@ const LINE_LENGTH: i32 = 1006;
 const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
 const CHARS_PER_LINE: usize = 64;
 
-const SECTION_BREAK: &str = "* * *";
+const SECTION_BREAK: &str = ">   >   >";
 
 lazy_static! {
     static ref ROMAN: Font<'static> =
@@ -68,12 +71,29 @@ lazy_static! {
         Font::from_bytes(include_bytes!("../fonts/EBGaramond-Bold.ttf").as_ref()).unwrap();
     static ref MONOSPACE: Font<'static> =
         Font::from_bytes(include_bytes!("../fonts/Inconsolata-Regular.ttf").as_ref()).unwrap();
+    static ref MONOSPACE_BOLD: Font<'static> =
+        Font::from_bytes(include_bytes!("../fonts/Inconsolata-Bold.ttf").as_ref()).unwrap();
+    static ref LONG_WHITESPACE: Regex = Regex::new("\\s\\s\\s+").unwrap();
+    static ref KEYBOARD_ICON: Image = Image::new(
+        image::load_from_memory_with_format(
+            include_bytes!("keyboard.png"),
+            image::ImageFormat::PNG
+        )
+        .unwrap()
+        .to_rgb()
+    );
+    static ref PROMPT_ICON: Image = Image::new(
+        image::load_from_memory_with_format(include_bytes!("chevron.png"), image::ImageFormat::PNG)
+            .unwrap()
+            .to_rgb()
+    );
 }
 
 #[derive(Clone, Debug)]
 enum Msg {
     Input(Ink),
     Submit,
+    ToggleKeyboard,
     PageRelative(isize),
     RecognizedText(usize, String),
     LoadGame(PathBuf),
@@ -82,13 +102,26 @@ enum Msg {
     ReadChar(ZChar),
 }
 
+enum UserInput {
+    Ink(Ink),
+    String(String),
+}
+
+impl UserInput {
+    fn is_empty(&self) -> bool {
+        match self {
+            UserInput::Ink(i) => i.len() == 0,
+            UserInput::String(s) => s.is_empty(),
+        }
+    }
+}
+
 enum Element {
     Break(i32),
     Line(bool, Text<Msg>),
     Input {
         active: bool,
-        prompt: Text<Msg>,
-        ink: Ink,
+        contents: UserInput,
     },
     File {
         big_text: Text,
@@ -114,6 +147,20 @@ impl Element {
     }
 }
 
+#[derive(Hash)]
+struct Cursor;
+
+impl Fragment for Cursor {
+    fn draw(&self, canvas: &mut Canvas) {
+        let start = canvas.bounds().top_left + Vector2 { x: 4, y: 2 };
+        let end = Point2 {
+            y: canvas.bounds().bottom_right.y - 2,
+            ..start
+        };
+        canvas.framebuffer().draw_line(start, end, 2, color::BLACK);
+    }
+}
+
 impl Widget for Element {
     type Message = Msg;
 
@@ -133,10 +180,27 @@ impl Widget for Element {
     fn render<'a>(&'a self, handlers: &'a mut Handlers<Self::Message>, mut frame: Frame<'a>) {
         let mut prompt_frame = frame.split_off(Side::Left, LEFT_MARGIN);
         match self {
-            Element::Input { active, prompt, .. } if *active => {
-                handlers.on_tap(&prompt_frame, Msg::Submit);
-                prompt_frame.split_off(Side::Right, 12);
-                prompt.render_placed(handlers, prompt_frame, 1.0, 0.5);
+            Element::Input { active, contents } => {
+                let button_frame = prompt_frame.split_off(Side::Right, 60);
+                if *active {
+                    handlers.on_tap(&button_frame, Msg::Submit);
+                }
+                Text::builder(LINE_HEIGHT, &*ROMAN)
+                    .font(&*MONOSPACE_BOLD)
+                    .scale(MONOSPACE_LINE_HEIGHT as f32)
+                    .literal(">")
+                    .into_text()
+                    .render_placed(handlers, button_frame, 0.5, 0.6);
+
+                if *active && contents.is_empty() {
+                    let button_frame = prompt_frame.split_off(Side::Right, 60);
+                    handlers.on_tap(&button_frame, Msg::ToggleKeyboard);
+                    (&*KEYBOARD_ICON)
+                        .void()
+                        .render_placed(handlers, button_frame, 0.5, 0.8);
+                }
+
+                mem::drop(prompt_frame)
             }
             Element::File { .. } => {
                 if let Some(mut canvas) = prompt_frame.canvas(388) {
@@ -148,6 +212,15 @@ impl Widget for Element {
                         color::BLACK,
                     );
                 }
+            }
+            Element::CharInput => {
+                let keyboard_frame = prompt_frame.split_off(Side::Right, LINE_HEIGHT);
+                handlers.on_tap(&keyboard_frame, Msg::ToggleKeyboard);
+                (*KEYBOARD_ICON)
+                    .borrow()
+                    .void()
+                    .render_placed(handlers, keyboard_frame, 0.5, 0.5);
+                mem::drop(prompt_frame)
             }
             _ => {
                 mem::drop(prompt_frame);
@@ -166,16 +239,31 @@ impl Widget for Element {
                 }
             }
             Element::Input {
-                active,
-                prompt,
-                ink,
-            } => {
-                if *active {
-                    handlers.on_ink(&frame, |ink| Msg::Input(ink))
+                active, contents, ..
+            } => match contents {
+                UserInput::Ink(ink) => {
+                    frame.push_annotation(ink);
+                    if *active {
+                        handlers.on_ink(&frame, |ink| Msg::Input(ink));
+                        Line { y: LINE_HEIGHT - 8 }.render(frame);
+                    } else {
+                        mem::drop(frame);
+                    }
                 }
-                frame.push_annotation(ink);
-                Line { y: LINE_HEIGHT - 8 }.render(frame);
-            }
+                UserInput::String(s) => {
+                    let text = Text::builder(LINE_HEIGHT, &*ROMAN)
+                        .font(&*MONOSPACE_BOLD)
+                        .scale(MONOSPACE_LINE_HEIGHT as f32)
+                        .literal(s)
+                        .into_text();
+                    text.render_split(handlers, &mut frame, Side::Left, 0.0);
+                    if *active {
+                        Cursor.render(frame);
+                    } else {
+                        mem::drop(frame);
+                    }
+                }
+            },
             Element::File {
                 big_text,
                 small_text,
@@ -190,24 +278,34 @@ impl Widget for Element {
                 small_text.void().render(handlers, frame);
             }
             Element::UpperWindow(lines) => {
+                // TODO: only register these when we're in read-char mode!
+                handlers.on_swipe(&frame, Side::Top, Msg::ReadChar(ZChar::UP));
+                handlers.on_swipe(&frame, Side::Bottom, Msg::ReadChar(ZChar::DOWN));
+                handlers.on_tap(&frame, Msg::ReadChar(ZChar::RETURN));
                 for line in lines {
                     line.render(handlers, frame.split_off(Side::Top, LINE_HEIGHT));
                 }
             }
             Element::CharInput => {
-                let text = Text::builder(LINE_HEIGHT, &*ROMAN)
-                    .words("Hit ")
-                    .message(Msg::ReadChar(ZChar::RETURN))
-                    .words("return")
-                    .no_message()
-                    .words(", ")
-                    .message(Msg::ReadChar(ZChar(' ' as u8)))
-                    .words("space")
-                    .no_message()
-                    .words(" or whatever!")
-                    .into_text();
+                type B = TextBuilder<'static, Msg>;
+                fn regular(builder: B, words: &str) -> B {
+                    builder.no_message().font(&*ROMAN).literal(words)
+                }
+                fn link(builder: B, words: &str, zch: ZChar) -> B {
+                    builder
+                        .message(Msg::ReadChar(zch))
+                        .font(&*ITALIC)
+                        .literal(words)
+                }
 
-                text.render_placed(handlers, frame, 0.5, 0.0)
+                let builder = Text::builder(LINE_HEIGHT, &*ROMAN);
+                let builder = link(builder, "escape", ZChar::ESC);
+                let builder = regular(builder, "  /  ");
+                let builder = link(builder, "space", ZChar::from_char(' ', &[]).unwrap());
+                let builder = regular(builder, "  /  ");
+                let builder = link(builder, "return", ZChar::RETURN);
+
+                builder.into_text().render_placed(handlers, frame, 0.5, 0.0)
             }
         }
     }
@@ -241,6 +339,7 @@ struct Page {
 struct Pages {
     contents: Vec<Page>,
     page_number: usize,
+    show_keyboard: bool,
 }
 
 impl Pages {
@@ -251,6 +350,7 @@ impl Pages {
                 body: Stack::new(Vector2::new(DISPLAYWIDTH as i32, TEXT_AREA_HEIGHT)),
             }],
             page_number: 0,
+            show_keyboard: false,
         }
     }
 
@@ -304,6 +404,7 @@ impl Pages {
             Some(Element::Line(..)) => true,
             Some(Element::File { .. }) => true,
             Some(Element::Input { .. }) => true,
+            Some(Element::UpperWindow(_)) => true,
             _ => false,
         };
         if height == 0 || !pad_previous_element {
@@ -360,30 +461,37 @@ impl Widget for Pages {
             .render_split(handlers, &mut frame, Side::Top, 0.5);
         body.render_split(handlers, &mut frame, Side::Top, 0.5);
 
-        frame.split_off(Side::Bottom, 100);
-
-        let roman = &*ROMAN;
-        let page_text = Text::literal(LINE_HEIGHT, roman, &(self.page_number + 1).to_string());
-
-        let page_number_start = (frame.size().x - page_text.size().x) / 2;
-
-        let before = frame.split_off(Side::Left, page_number_start);
-        if self.page_number > 0 {
-            let left_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, "<");
-            left_arrow.render_placed(handlers, before, 0.98, 0.5);
+        if self.show_keyboard && self.page_number + 1 == self.contents.len() {
+            let keyboard = Keyboard::new(&*MONOSPACE);
+            keyboard
+                .map(|zch| Msg::ReadChar(zch))
+                .render_placed(handlers, frame, 0.5, 0.5);
         } else {
-            mem::drop(before);
-        }
+            frame.split_off(Side::Bottom, 100);
 
-        let after = frame.split_off(Side::Right, page_number_start);
-        if self.page_number + 1 < self.contents.len() {
-            let right_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, ">");
-            right_arrow.render_placed(handlers, after, 0.02, 0.5)
-        } else {
-            mem::drop(after);
-        }
+            let roman = &*ROMAN;
+            let page_text = Text::literal(LINE_HEIGHT, roman, &(self.page_number + 1).to_string());
 
-        page_text.render_placed(handlers, frame, 0.5, 0.5);
+            let page_number_start = (frame.size().x - page_text.size().x) / 2;
+
+            let before = frame.split_off(Side::Left, page_number_start);
+            if self.page_number > 0 {
+                let left_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, "<");
+                left_arrow.render_placed(handlers, before, 0.98, 0.5);
+            } else {
+                mem::drop(before);
+            }
+
+            let after = frame.split_off(Side::Right, page_number_start);
+            if self.page_number + 1 < self.contents.len() {
+                let right_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, ">");
+                right_arrow.render_placed(handlers, after, 0.02, 0.5)
+            } else {
+                mem::drop(after);
+            }
+
+            page_text.render_placed(handlers, frame, 0.5, 0.5);
+        }
     }
 }
 
@@ -392,6 +500,15 @@ struct SaveMeta {
     location: String,
     score_and_turn: String,
     status_line: Option<String>,
+}
+
+impl SaveMeta {
+    fn slug(&self) -> String {
+        match &self.status_line {
+            Some(line) => LONG_WHITESPACE.replace_all(line.trim(), " - ").to_string(),
+            None => format!("{} - {}", &self.location, &self.score_and_turn),
+        }
+    }
 }
 
 struct Session {
@@ -457,8 +574,6 @@ impl Session {
         }
         page.push_advance_space();
 
-        let long_whitespace = Regex::new("\\s\\s\\s+").unwrap();
-
         for path in saves {
             let text = path.to_string_lossy().to_string();
 
@@ -473,14 +588,10 @@ impl Session {
                     status_line: Some("Unknown".to_string()),
                 }
             };
-            let slug = match &meta.status_line {
-                Some(line) => long_whitespace.replace_all(line.trim(), " - ").to_string(),
-                None => format!("{} - {}", &meta.location, &meta.score_and_turn),
-            };
 
             page.push_element(Element::file_display(
                 &*ROMAN,
-                &slug,
+                &meta.slug(),
                 &text,
                 Some(Msg::Restore(path, meta)),
             ));
@@ -577,6 +688,14 @@ impl Session {
             *active = false;
         }
 
+        let was_read_char = matches!(self.pages.last().body.last(), Some(Element::CharInput));
+        if was_read_char {
+            self.pages.last_mut().body.pop();
+            while matches!(self.pages.last().body.last(), Some(Element::Break(_))) {
+                self.pages.last_mut().body.pop();
+            }
+        }
+
         // if the upper window is displaying some big quote box, collapse it down.
         self.zvm.ui.resolve_upper_height();
 
@@ -586,6 +705,11 @@ impl Session {
         if self.zvm.ui.is_cleared() {
             self.pages.push_section_break();
             self.pages.maybe_new_page(TEXT_AREA_HEIGHT);
+            // We should only automatically turn the page if the user tapped a link...
+            // doing it after async handwriting input is too jarring.
+            if was_read_char {
+                self.pages.page_relative(1);
+            }
         } else {
             self.pages.maybe_new_page(LINE_HEIGHT);
         }
@@ -640,9 +764,17 @@ impl Session {
                     .map(|line| {
                         let text: String =
                             line.iter().take(CHARS_PER_LINE).map(|(_, c)| c).collect();
-                        Text::literal(MONOSPACE_LINE_HEIGHT, &*MONOSPACE, &text)
+                        // We create the builder with ROMAN font so we have the same baseline.
+                        Text::builder(MONOSPACE_LINE_HEIGHT, &*ROMAN)
+                            .font(&*MONOSPACE)
+                            .literal(&text)
+                            .into_text()
                     })
                     .collect::<Vec<_>>();
+
+                if matches!(self.pages.last().body.last(), Some(Element::UpperWindow(_))) {
+                    self.pages.last_mut().body.pop();
+                }
 
                 self.pages
                     .push_element(Element::UpperWindow(remaining_lines));
@@ -700,7 +832,7 @@ impl Session {
                 self.pages.push_element(Element::Break(LINE_HEIGHT / 2));
                 self.pages.push_element(Element::file_display(
                     &*ROMAN,
-                    &meta.status_line.unwrap_or("unknown".to_string()),
+                    &meta.slug(),
                     save_path.to_string_lossy().borrow(),
                     None,
                 ));
@@ -717,13 +849,14 @@ impl Session {
                 result
             }
             _ => {
+                self.pages.show_keyboard = false;
+
                 // Add a prompt
                 self.pages.maybe_new_page(LINE_HEIGHT * 3);
                 self.pages.push_advance_space();
                 self.pages.push_element(Element::Input {
                     active: true,
-                    prompt: ui::Text::literal(LINE_HEIGHT, &*ROMAN, "☞"),
-                    ink: Ink::new(),
+                    contents: UserInput::Ink(Ink::new()),
                 });
 
                 result
@@ -834,17 +967,25 @@ impl Game {
         }
         games.push_advance_space();
 
+        let mut elements = vec![];
+
         for game_path in game_vec {
             let path_str = game_path.to_string_lossy().to_string();
             let slug = game_path
                 .file_stem()
                 .map_or("unknown".to_string(), |os| os.to_string_lossy().to_string());
 
+            elements.push((slug, game_path, path_str));
+        }
+
+        elements.sort_by_key(|(slug, _, _)| slug.to_owned());
+
+        for (slug, path, path_str) in elements {
             games.push_element(Element::file_display(
                 font,
                 &slug,
                 &path_str,
-                Some(Msg::LoadGame(game_path)),
+                Some(Msg::LoadGame(path)),
             ));
         }
         games
@@ -858,6 +999,16 @@ impl Game {
             ink_tx,
             awaiting_ink: 0,
             root_dir,
+        }
+    }
+
+    fn pages_mut(&mut self) -> &mut Pages {
+        match &mut self.state {
+            GameState::Playing { session, .. } => match &mut session.restore {
+                None => &mut session.pages,
+                Some(saves) => saves,
+            },
+            GameState::Init { games } => games,
         }
     }
 }
@@ -891,8 +1042,7 @@ impl Applet for Game {
                 if let GameState::Playing { session } = &mut self.state {
                     if let Some(Element::Input {
                         active,
-                        prompt,
-                        ink: existing_ink,
+                        contents: UserInput::Ink(existing_ink),
                     }) = &mut session.pages.last_mut().body.last_mut()
                     {
                         existing_ink.append(ink, 0.5);
@@ -909,10 +1059,10 @@ impl Applet for Game {
             }
             Msg::Submit => {
                 if let GameState::Playing { session } = &mut self.state {
+                    // TODO: should this submit the string contents also?
                     if let Some(Element::Input {
                         active,
-                        prompt,
-                        ink: existing_ink,
+                        contents: UserInput::Ink(existing_ink),
                     }) = &mut session.pages.last_mut().body.last_mut()
                     {
                         if existing_ink.len() == 0 {
@@ -929,17 +1079,7 @@ impl Applet for Game {
                     }
                 }
             }
-            Msg::PageRelative(count) => {
-                let current_pages = match &mut self.state {
-                    GameState::Playing { session, .. } => match &mut session.restore {
-                        None => &mut session.pages,
-                        Some(saves) => saves,
-                    },
-                    GameState::Init { games } => games,
-                };
-
-                current_pages.page_relative(count)
-            }
+            Msg::PageRelative(count) => self.pages_mut().page_relative(count),
             Msg::RecognizedText(n, text) => {
                 if let GameState::Playing { session } = &mut self.state {
                     if n == self.awaiting_ink {
@@ -1005,9 +1145,79 @@ impl Applet for Game {
             }
             Msg::ReadChar(zch) => {
                 if let GameState::Playing { session } = &mut self.state {
-                    // session.pages.last_mut().body.pop();
-                    session.zvm.handle_read_char(zch);
-                    session.advance();
+                    if let Some(Element::Input { active, contents }) =
+                        &mut session.pages.last_mut().body.last_mut()
+                    {
+                        match zch {
+                            ZChar::ESC => {}
+                            ZChar::RETURN => {
+                                if let UserInput::String(s) = contents {
+                                    session.zvm.handle_input(s.clone());
+                                    // FIXME: share this with the read-line code
+                                    match session.advance() {
+                                        Step::Restore => {
+                                            // Start a new page unless the current page is empty
+                                            // session.maybe_new_page(TEXT_AREA_HEIGHT);
+                                            let saves = session.load_saves().unwrap();
+                                            session.restore_menu(saves, false);
+                                        }
+                                        Step::Done => {
+                                            self.state = GameState::Init {
+                                                games: Game::game_page(&*ROMAN, &self.root_dir),
+                                            };
+                                        }
+                                        _ => {}
+                                    };
+                                }
+                            }
+                            ZChar::DELETE => {
+                                if let UserInput::String(s) = contents {
+                                    s.pop();
+                                }
+                            }
+                            _ => {
+                                let ch = zch.to_char(session.zvm.unicode_table());
+                                match contents {
+                                    UserInput::Ink(_) => {
+                                        *contents = UserInput::String(ch.to_string())
+                                    }
+                                    UserInput::String(s) => s.push(ch),
+                                }
+                            }
+                        }
+                    } else {
+                        session.zvm.handle_read_char(zch);
+                        // FIXME: share this with the read-line code
+                        match session.advance() {
+                            Step::Restore => {
+                                // Start a new page unless the current page is empty
+                                // session.maybe_new_page(TEXT_AREA_HEIGHT);
+                                let saves = session.load_saves().unwrap();
+                                session.restore_menu(saves, false);
+                            }
+                            Step::Done => {
+                                self.state = GameState::Init {
+                                    games: Game::game_page(&*ROMAN, &self.root_dir),
+                                };
+                            }
+                            _ => {}
+                        };
+                    }
+                }
+            }
+            Msg::ToggleKeyboard => {
+                let pages = self.pages_mut();
+                pages.show_keyboard = !pages.show_keyboard;
+
+                let show_keyboard = pages.show_keyboard;
+                if let Some(Element::Input { active, contents }) =
+                    &mut pages.last_mut().body.last_mut()
+                {
+                    *contents = if show_keyboard {
+                        UserInput::String(String::new())
+                    } else {
+                        UserInput::Ink(Ink::new())
+                    };
                 }
             }
         }

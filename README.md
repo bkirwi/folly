@@ -1,14 +1,6 @@
-# Encrusted (reMarkable version)
+# Folly
 
-### A z-machine (interpreter) for Infocom-era text adventure games like Zork
-
-https://user-images.githubusercontent.com/1596339/125673318-b95d00c0-ed43-4360-87ea-3e115d5a6876.mov
-
-**This is a fork of the [Encrusted interpreter by @DeMille](https://github.com/DeMille/encrusted),
-rebuilt for the reMarkable tablet using
-[`armrest`](https://github.com/bkirwi/armrest).**
-This readme describes the fork -
-follow the links above for more context.
+An Z-machine for the reMarkable tablet.
 
 **This software is in alpha.**
 If you encounter any bugs,
@@ -16,12 +8,68 @@ If you encounter any bugs,
 
 # Interactive fiction
 
-A Z-machine is a virtual machine designed specifically
+The Z-machine is a virtual machine designed specifically
 for [interative fiction](https://en.wikipedia.org/wiki/Interactive_fiction).
-This interepreter supports a number of classic [Infocom](https://en.wikipedia.org/wiki/Infocom) games...
+_Folly_ can run (almost) any of the [hundreds of stories](https://ifdb.org/search?searchfor=format%3AZ*&searchgo=Search+Games)
+that have been released in the Z-machine format,
 but adapts them to accept handwritten commands instead of keyboard input.
 This makes them play well on a device like the reMarkable,
 where typing is annoying but reading and writing is very natural.
+
+_Folly_ is built on top of [Encrusted](./encrusted-heart) --
+a Z-machine implementation for the Rust programming language --
+and [Armrest](https://github.com/bkirwi/armrest),
+which provides the handwriting recognition and the building blocks of the UI.
+
+# About the handwriting recognition
+
+Encrusted uses the open-source handwriting recognition from `armrest`.
+It was created from scratch for the tablet,
+and runs locally on the device.
+When an application needs input from you,
+you'll see a prompt like `>_____` onscreen;
+just write out the command you want on the line,
+and it'll be interpreted and run automatically within a second or so.
+
+The handwriting recognition is not perfectly reliable,
+and you may need to repeat an input to get Folly to understand it.
+Some advice on getting the best results:
+- Make sure you know [the standard IF commands](http://pr-if.org/doc/play-if-card/play-if-card.html)!
+  (The handwriting recognition is tuned to recognize the words your game actually uses.)
+- **Write in lowercase**: no capital letters.
+- Printing is more reliably recognized than cursive.
+- If you can't get the game to recognize a word, try a synonym.
+
+If the handwriting input gets frustrating
+(it's particularly bad at recognizing numbers at the moment)
+or you're not sure how to input some special character,
+there's also an on-screen keyboard available:
+tap the little keyboard icon next to the prompt to bring it up.
+
+The game logs your handwriting input,
+and its best guess at the corresponding text,
+to the `ink.log` file in `ENCRUSTED_ROOT`.
+(This is normally set to `~/encrusted`.)
+**Please consider contributing this data to the project,
+especially if the handwriting recognition is not working well for you**...
+it will help us improve the system,
+for you and for anyone else with a similar handwriting style.
+You can submit the data by [creating an issue](https://github.com/bkirwi/armrest/issues/new)
+and adding the `ink.log` file from your device as an attachment.
+
+# Running on reMarkable
+
+**This section assumes you've set up custom software on your reMarkable before.
+If not, you'll want to check out community projects like [Toltec](https://toltec-dev.org/)
+to get set up. (And don't forget to write down your password!)**
+
+First, you'll need a copy of the binary.
+You can either build it from scratch (see instructions below)
+or grab a prebuilt binary from the [releases page](https://github.com/bkirwi/encrusted/releases).
+
+You'll also need a game to play.
+You can find freely available games [on the IFDB](https://ifdb.org/search?searchfor=format%3AZ*&searchgo=Search+Games).
+Any game with a `.z3`, `.z4`, `.z5`, or `z8` extension is expected to work.
 
 If you haven't played an interactive fiction game before,
 you might want to get the hang of it on a keyboard first.
@@ -30,53 +78,11 @@ covers the basic commands,
 and [9:05](http://adamcadre.ac/if/905.html)
 is a nice short game to try them out on.
 
-# About the handwriting recognition
-
-Encrusted uses the open-source handwriting recognition from `armrest`,
-which was created from scratch for the tablet.
-It runs fully locally on the device...
-but is not yet as reliable as the "cloud" handwriting recognition
-in the main reMarkable app.
-
-You will occasionally need to repeat an input to get Encrusted to understand it.
-Some advice on getting the best results:
-- Make sure you know [the standard IF commands](http://pr-if.org/doc/play-if-card/play-if-card.html)!
-  (The handwriting recognition is tuned to recognize the words your game actually uses.)
-- Write in lowercase: no capital letters.
-- Printing is more reliably recognized than cursive at the moment.
-- If you can't get the game to recognize a word, try a synonym.
-
-The game logs your handwriting input,
-and its best guess at the corresponding text,
-to the `ink.log` file in `ENCRUSTED_ROOT`.
-**Please consider contributing this data to the project,
-especially if the handwriting recognition is not working well**...
-it will help us improve the system,
-for you and for anyone else with a similar handwriting style.
-You can submit the data by [creating an issue](https://github.com/bkirwi/armrest/issues/new)
-and adding the `ink.log` file from your device as an attachment.
-
-# Running on reMarkable
-
-First, you'll need a copy of the binary.
-You can either build it from scratch (see instructions below)
-or grab a prebuilt binary from the [releases page](https://github.com/bkirwi/encrusted/releases).
-
-You'll also need a game to play. Freely available games include:
-- [Minizork](https://github.com/bkirwi/encrusted/raw/master/tests/minizork.z3) -
-  a pared-down version of the classic [Zork](https://en.wikipedia.org/wiki/Zork).
-- [Hitchhiker's Guide to the Galaxy](http://www.douglasadams.com/creations/hhgg.z3) -
-  a clever (but very difficult) game
-  [based on the novel](https://en.wikipedia.org/wiki/The_Hitchhiker%27s_Guide_to_the_Galaxy_(video_game)).
-
-Other Infocom games like Wishbringer and Plundered Hearts are known to work,
-as should any Infocom-era game with a `.z3` extension.
-
 The `ENCRUSTED_ROOT` environment variable sets the directory
 where Encrusted will look for game files, store saved games, and keep logs.
 It defaults to `/home/root/encrusted`.
 (Make sure you don't put the binary at that path!
-Consider `/home/root/bin/encrusted` instead.)
+I suggest `/home/root/bin/encrusted` instead.)
 
 If you're using a launcher, you may want to create a draft file for it as well:
 
@@ -89,37 +95,13 @@ call=/home/root/bin/encrusted
 EOF
 ```
 
-## Playing a game
-
-All commands in the game are handwritten;
-you can use lowercase english letters, commas, periods, quotes, and spaces.
-The handwriting recognition is automatic,
-and starts as soon as you lift your pen away from the page.
-(You may sometimes need to submit an empty input;
-in that case, tap the little hand directly.)
-
-Aside from the usual interactive fiction commands,
-you can use a few meta-commands to manage the game itself.
-Write `save` to save your place,
-`restore` to load a previous save,
-and `quit` to exit out to the main menu and choose another game.
-
 # Building and development
 
 To build this code,
-you'll need to have the `armrest` repo checked out in a sibling directory.
-To build for the reMarkable, run `../armrest/build-rm.sh`.
-
-### Tests
-
-Run z-machine tests ([czech](https://inform-fiction.org/zmachine/standards/z1point1/appc.html) & [praxix](https://inform-fiction.org/zmachine/standards/z1point1/appc.html)) through [regtest](https://eblong.com/zarf/plotex/regtest.html):
-```
-npm run test
-```
-
-### Notes
-- Currently only supports v3 zcode files
-- Saves games in the Quetzal format
+you'll need to have the `armrest` repo checked out in a sibling directory,
+and have a recent reMarkable toolchain installed somewhere.
+The usual cargo commands work;
+to build for the reMarkable, run `../armrest/build-rm.sh`.
 
 ### License
 MIT

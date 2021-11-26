@@ -1,9 +1,8 @@
 [package]
 authors = ["Sterling DeMille <sterlingdemille+github@gmail.com>"]
 name = "encrusted-heart"
-version = "1.1.0"
-description = "A z-machine (interpreter) for Infocom-era text adventure games"
-repository = "https://github.com/demille/encrusted"
+version = "0.0.1"
+description = "A z-machine (interpreter) for text adventure games"
 readme = "README.md"
 license = "MIT"
 edition = "2015"

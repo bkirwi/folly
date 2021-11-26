@@ -43,8 +43,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use armrest::app::{Applet, Component};
-use encrusted::dict::*;
-use encrusted::keyboard::Keyboard;
+use folly::dict::*;
+use folly::keyboard::Keyboard;
 
 /*
 For inconsolata, height / width = 0.4766444.
@@ -82,8 +82,13 @@ lazy_static! {
         .unwrap()
         .to_rgb()
     );
-    static ref PROMPT_ICON: Image = Image::new(
-        image::load_from_memory_with_format(include_bytes!("chevron.png"), image::ImageFormat::PNG)
+    static ref GAME_ICON: Image = Image::new(
+        image::load_from_memory_with_format(include_bytes!("book.png"), image::ImageFormat::PNG)
+            .unwrap()
+            .to_rgb()
+    );
+    static ref SAVE_ICON: Image = Image::new(
+        image::load_from_memory_with_format(include_bytes!("restore.png"), image::ImageFormat::PNG)
             .unwrap()
             .to_rgb()
     );
@@ -124,6 +129,7 @@ enum Element {
         contents: UserInput,
     },
     File {
+        icon: &'static Image,
         big_text: Text,
         small_text: Text,
         message: Option<Msg>,
@@ -134,14 +140,19 @@ enum Element {
 
 impl Element {
     fn file_display(
-        font: &Font<'static>,
+        icon: &'static Image,
         big_text: &str,
         path_str: &str,
         msg: Option<Msg>,
     ) -> Element {
         Element::File {
-            big_text: Text::literal(LINE_HEIGHT * 4 / 3, &font, &big_text),
-            small_text: Text::literal(LINE_HEIGHT * 2 / 3, &font, &path_str),
+            icon,
+            big_text: Text::literal(LINE_HEIGHT * 4 / 3, &*ROMAN, &big_text),
+            small_text: Text::builder(LINE_HEIGHT * 2 / 3, &*ROMAN)
+                .font(&*MONOSPACE)
+                .scale((MONOSPACE_LINE_HEIGHT * 2 / 3) as f32)
+                .literal(&path_str)
+                .into_text(),
             message: msg,
         }
     }
@@ -179,6 +190,8 @@ impl Widget for Element {
 
     fn render<'a>(&'a self, handlers: &'a mut Handlers<Self::Message>, mut frame: Frame<'a>) {
         let mut prompt_frame = frame.split_off(Side::Left, LEFT_MARGIN);
+        const BUTTON_PADDING_TOP: i32 = 0;
+        const BUTTON_WIDTH: i32 = 60;
         match self {
             Element::Input { active, contents } => {
                 let button_frame = prompt_frame.split_off(Side::Right, 60);
@@ -190,36 +203,36 @@ impl Widget for Element {
                     .scale(MONOSPACE_LINE_HEIGHT as f32)
                     .literal(">")
                     .into_text()
-                    .render_placed(handlers, button_frame, 0.5, 0.6);
+                    .render_placed(handlers, button_frame, 0.5, 0.0);
 
                 if *active && contents.is_empty() {
-                    let button_frame = prompt_frame.split_off(Side::Right, 60);
+                    let mut button_frame = prompt_frame.split_off(Side::Right, BUTTON_WIDTH);
                     handlers.on_tap(&button_frame, Msg::ToggleKeyboard);
+                    button_frame.split_off(Side::Top, BUTTON_PADDING_TOP);
                     (&*KEYBOARD_ICON)
                         .void()
-                        .render_placed(handlers, button_frame, 0.5, 0.8);
+                        .render_placed(handlers, button_frame, 0.5, 0.0);
                 }
 
                 mem::drop(prompt_frame)
             }
-            Element::File { .. } => {
-                if let Some(mut canvas) = prompt_frame.canvas(388) {
-                    let bounds = canvas.bounds();
-                    let fb = canvas.framebuffer();
-                    fb.fill_rect(
-                        Point2::new(bounds.bottom_right.x - 12, bounds.top_left.y + 12),
-                        Vector2::new(2, bounds.size().y as u32 - 18),
-                        color::BLACK,
-                    );
+            Element::File { icon, message, .. } => {
+                let mut button_frame = prompt_frame.split_off(Side::Right, BUTTON_WIDTH);
+                if let Some(m) = message {
+                    handlers.on_tap(&button_frame, m.clone());
                 }
+                button_frame.split_off(Side::Top, 10);
+                icon.void().render_placed(handlers, button_frame, 0.5, 0.0);
+                mem::drop(prompt_frame);
             }
             Element::CharInput => {
-                let keyboard_frame = prompt_frame.split_off(Side::Right, LINE_HEIGHT);
-                handlers.on_tap(&keyboard_frame, Msg::ToggleKeyboard);
+                let mut button_frame = prompt_frame.split_off(Side::Right, LINE_HEIGHT);
+                handlers.on_tap(&button_frame, Msg::ToggleKeyboard);
+                button_frame.split_off(Side::Top, BUTTON_PADDING_TOP);
                 (*KEYBOARD_ICON)
                     .borrow()
                     .void()
-                    .render_placed(handlers, keyboard_frame, 0.5, 0.5);
+                    .render_placed(handlers, button_frame, 0.5, 0.0);
                 mem::drop(prompt_frame)
             }
             _ => {
@@ -268,6 +281,7 @@ impl Widget for Element {
                 big_text,
                 small_text,
                 message,
+                ..
             } => {
                 if let Some(m) = message {
                     handlers.on_tap(&frame, m.clone());
@@ -497,16 +511,24 @@ impl Widget for Pages {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct SaveMeta {
-    location: String,
-    score_and_turn: String,
+    location: Option<String>,
+    score_and_turn: Option<String>,
     status_line: Option<String>,
 }
 
 impl SaveMeta {
     fn slug(&self) -> String {
-        match &self.status_line {
-            Some(line) => LONG_WHITESPACE.replace_all(line.trim(), " - ").to_string(),
-            None => format!("{} - {}", &self.location, &self.score_and_turn),
+        match &self {
+            SaveMeta {
+                status_line: Some(line),
+                ..
+            } => LONG_WHITESPACE.replace_all(line.trim(), " - ").to_string(),
+            SaveMeta {
+                location: Some(location),
+                score_and_turn: Some(score),
+                ..
+            } => format!("{} - {}", location, score),
+            _ => "Unknown".to_string(),
         }
     }
 }
@@ -583,14 +605,14 @@ impl Session {
                     .expect("Yikes: could not interpret meta file as valid save_meta data")
             } else {
                 SaveMeta {
-                    location: "Unknown".to_string(),
-                    score_and_turn: "0/0".to_string(),
-                    status_line: Some("Unknown".to_string()),
+                    location: None,
+                    score_and_turn: None,
+                    status_line: None,
                 }
             };
 
             page.push_element(Element::file_display(
-                &*ROMAN,
+                &*SAVE_ICON,
                 &meta.slug(),
                 &text,
                 Some(Msg::Restore(path, meta)),
@@ -642,13 +664,26 @@ impl Session {
             lines.pop();
         }
 
-        for line in lines {
+        for mut line in lines {
             if blank(&line) {
                 self.pages.push_advance_space();
                 continue;
             }
 
             let mut text_builder = Text::builder(44, &*ROMAN);
+
+            if let Some(BaseOutput { content, .. }) = line.first_mut() {
+                if let Some(i) = content.find(|c| c != ' ').filter(|i| *i != 0) {
+                    // The roman font is a bit too small for leading spaces... use monospace for that.
+                    text_builder = text_builder
+                        .font(&*MONOSPACE)
+                        .scale(MONOSPACE_LINE_HEIGHT as f32)
+                        .literal(&" ".repeat(i))
+                        .font(&*ROMAN)
+                        .scale(LINE_HEIGHT as f32);
+                    *content = content.trim_start().to_string();
+                }
+            }
 
             for BaseOutput { style, content } in line {
                 // In theory we may want to support multiple of these at once,
@@ -765,8 +800,9 @@ impl Session {
                         let text: String =
                             line.iter().take(CHARS_PER_LINE).map(|(_, c)| c).collect();
                         // We create the builder with ROMAN font so we have the same baseline.
-                        Text::builder(MONOSPACE_LINE_HEIGHT, &*ROMAN)
+                        Text::builder(LINE_HEIGHT, &*ROMAN)
                             .font(&*MONOSPACE)
+                            .scale(MONOSPACE_LINE_HEIGHT as f32)
                             .literal(&text)
                             .into_text()
                     })
@@ -820,8 +856,8 @@ impl Session {
                 };
 
                 let meta = SaveMeta {
-                    location: "unknown".to_string(),
-                    score_and_turn: "unknown".to_string(),
+                    location: None,
+                    score_and_turn: None,
                     status_line,
                 };
                 let meta_json = serde_json::to_string(&meta).unwrap();
@@ -829,14 +865,14 @@ impl Session {
                 fs::write(&meta_path, meta_json).unwrap();
 
                 self.pages.maybe_new_page(LINE_HEIGHT * 3);
-                self.pages.push_element(Element::Break(LINE_HEIGHT / 2));
+                self.pages.push_advance_space();
                 self.pages.push_element(Element::file_display(
-                    &*ROMAN,
+                    &*SAVE_ICON,
                     &meta.slug(),
                     save_path.to_string_lossy().borrow(),
                     None,
                 ));
-                self.pages.push_element(Element::Break(LINE_HEIGHT / 2));
+                self.pages.push_advance_space();
 
                 eprintln!("Game successfully saved!");
                 self.zvm.handle_save_result(true);
@@ -943,26 +979,31 @@ impl Game {
         Ok(session)
     }
 
-    fn game_page(font: &Font<'static>, root_dir: &Path) -> Pages {
+    fn game_page(root_dir: &Path) -> Pages {
         let mut games = Pages::new();
 
-        let header = Text::literal(LINE_HEIGHT * 3, font, "ENCRUSTED");
-        games.push_element(Element::Line(true, header));
-        games.push_advance_space();
+        let header = Text::builder(LINE_HEIGHT * 3, &*BOLD)
+            .literal("Folly. ")
+            // .font(&*ROMAN)
+            // .scale(LINE_HEIGHT as f32)
+            // .literal("Handwritten interactive fiction.")
+            .into_text();
+        games.push_element(Element::Line(false, header));
+        // games.push_advance_space();
 
         let game_vec =
             Game::list_games(root_dir).expect(&format!("Unable to list games in {:?}", root_dir));
 
         let welcome_message: String = if game_vec.is_empty() {
             format!(
-                "Welcome to Encrusted! It looks like you haven't added any games yet... add a Zcode file to {} and restart the app.",
+                "It looks like you haven't added any games yet... add a Zcode file to {} and restart the app.",
                 root_dir.to_string_lossy(),
             )
         } else {
-            "Welcome to Encrusted! Choose a game from the list to get started.".to_string()
+            "Choose a game from the list to get started.".to_string()
         };
 
-        for widget in Text::wrap(LINE_HEIGHT, font, &welcome_message, LINE_LENGTH, true) {
+        for widget in Text::wrap(LINE_HEIGHT, &*ROMAN, &welcome_message, LINE_LENGTH, true) {
             games.push_element(Element::Line(false, widget));
         }
         games.push_advance_space();
@@ -982,7 +1023,7 @@ impl Game {
 
         for (slug, path, path_str) in elements {
             games.push_element(Element::file_display(
-                font,
+                &*GAME_ICON,
                 &slug,
                 &path_str,
                 Some(Msg::LoadGame(path)),
@@ -994,7 +1035,7 @@ impl Game {
     fn init(ink_tx: mpsc::Sender<(Ink, Arc<Dict>, usize)>, root_dir: PathBuf) -> Game {
         Game {
             state: GameState::Init {
-                games: Game::game_page(&*ROMAN, &root_dir),
+                games: Game::game_page(&root_dir),
             },
             ink_tx,
             awaiting_ink: 0,
@@ -1104,7 +1145,7 @@ impl Applet for Game {
                             }
                             Step::Done => {
                                 self.state = GameState::Init {
-                                    games: Game::game_page(&*ROMAN, &self.root_dir),
+                                    games: Game::game_page(&self.root_dir),
                                 };
                             }
                             _ => {}
@@ -1163,7 +1204,7 @@ impl Applet for Game {
                                         }
                                         Step::Done => {
                                             self.state = GameState::Init {
-                                                games: Game::game_page(&*ROMAN, &self.root_dir),
+                                                games: Game::game_page(&self.root_dir),
                                             };
                                         }
                                         _ => {}
@@ -1197,7 +1238,7 @@ impl Applet for Game {
                             }
                             Step::Done => {
                                 self.state = GameState::Init {
-                                    games: Game::game_page(&*ROMAN, &self.root_dir),
+                                    games: Game::game_page(&self.root_dir),
                                 };
                             }
                             _ => {}

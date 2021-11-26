@@ -1,9 +1,12 @@
 [package]
-authors = ["Sterling DeMille <sterlingdemille+github@gmail.com>"]
-name = "encrusted"
-version = "1.1.0"
-description = "A z-machine (interpreter) for Infocom-era text adventure games"
-repository = "https://github.com/demille/encrusted"
+authors = [
+    "Sterling DeMille <sterlingdemille+github@gmail.com>",
+    "Ben Kirwin <bkirwi@gmail.com>"
+]
+name = "folly"
+version = "0.0.1"
+description = "A z-machine for the reMarkable tablet"
+repository = "https://github.com/bkirwi/folly"
 readme = "README.md"
 license = "MIT"
 edition = "2018"
@@ -25,7 +28,6 @@ regex = "1.1.0"
 itertools = "0.10.1"
 termion = "1.5.6"
 armrest = { path = "../armrest" }
-libremarkable = "0.5.0"
-# libremarkable = { path = "../libremarkable" }
+libremarkable = { version = "0.5.0", path = "../libremarkable" }
 rusttype = "0.8.2"
 chrono = "0.4.19"

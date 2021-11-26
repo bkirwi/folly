@@ -1268,9 +1268,8 @@ impl Applet for Game {
 }
 
 fn main() {
-    let root_dir = PathBuf::from(
-        std::env::var("ENCRUSTED_ROOT").unwrap_or("/home/root/encrusted".to_string()),
-    );
+    let root_dir =
+        PathBuf::from(std::env::var("FOLLY_ROOT").unwrap_or("/home/root/folly".to_string()));
 
     let mut app = armrest::app::App::new();
 

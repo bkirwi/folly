@@ -23,7 +23,7 @@ which provides the handwriting recognition and the building blocks of the UI.
 
 # About the handwriting recognition
 
-Encrusted uses the open-source handwriting recognition from `armrest`.
+_Folly_ uses the open-source handwriting recognition from `armrest`.
 It was created from scratch for the tablet,
 and runs locally on the device.
 When an application needs input from you,
@@ -48,8 +48,8 @@ tap the little keyboard icon next to the prompt to bring it up.
 
 The game logs your handwriting input,
 and its best guess at the corresponding text,
-to the `ink.log` file in `ENCRUSTED_ROOT`.
-(This is normally set to `~/encrusted`.)
+to the `ink.log` file in `FOLLY_ROOT`.
+(See below for more on that directory.)
 **Please consider contributing this data to the project,
 especially if the handwriting recognition is not working well for you**...
 it will help us improve the system,
@@ -78,20 +78,20 @@ covers the basic commands,
 and [9:05](http://adamcadre.ac/if/905.html)
 is a nice short game to try them out on.
 
-The `ENCRUSTED_ROOT` environment variable sets the directory
-where Encrusted will look for game files, store saved games, and keep logs.
-It defaults to `/home/root/encrusted`.
+The `FOLLY_ROOT` environment variable sets the directory
+where _Folly_ will look for game files, store saved games, and keep logs.
+It defaults to `/home/root/folly`.
 (Make sure you don't put the binary at that path!
-I suggest `/home/root/bin/encrusted` instead.)
+I suggest `/home/root/bin/folly` instead.)
 
 If you're using a launcher, you may want to create a draft file for it as well:
 
 ```bash
-# Create the launcher entry, assuming the binary is at /home/root/bin/encrusted
-cat << EOF > /opt/etc/draft/encrusted.draft
-name=encrusted
+# Create the launcher entry, assuming the binary is at /home/root/bin/folly
+cat << EOF > /opt/etc/draft/folly.draft
+name=folly
 desc=a Z-machine interpreter for the reMarkable
-call=/home/root/bin/encrusted
+call=/home/root/bin/folly
 EOF
 ```
 

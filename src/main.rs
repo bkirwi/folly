@@ -43,6 +43,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use armrest::app::{Applet, Component};
+use armrest::geom::Regional;
 use folly::dict::*;
 use folly::keyboard::{KeyPress, Keyboard};
 
@@ -74,6 +75,11 @@ lazy_static! {
     static ref MONOSPACE_BOLD: Font<'static> =
         Font::from_bytes(include_bytes!("../fonts/Inconsolata-Bold.ttf").as_ref()).unwrap();
     static ref LONG_WHITESPACE: Regex = Regex::new("\\s\\s\\s+").unwrap();
+    static ref PROMPT_ICON: Image = Image::new(
+        image::load_from_memory_with_format(include_bytes!("chevron.png"), image::ImageFormat::PNG)
+            .unwrap()
+            .to_rgb()
+    );
     static ref KEYBOARD_ICON: Image = Image::new(
         image::load_from_memory_with_format(
             include_bytes!("keyboard.png"),
@@ -193,53 +199,54 @@ impl Widget for Element {
         let mut prompt_frame = frame.split_off(Side::Left, LEFT_MARGIN);
         const BUTTON_PADDING_TOP: i32 = 0;
         const BUTTON_WIDTH: i32 = 60;
+
+        fn push_icon(
+            frame: &mut Frame,
+            handlers: &mut Handlers<Msg>,
+            icon: &Image,
+            message: Option<Msg>,
+        ) {
+            let button_frame = frame.split_off(Side::Right, BUTTON_WIDTH);
+            if let Some(m) = message {
+                // TODO: something better than this tedious math.
+                let mut region = button_frame.region();
+                let y_center = region.bottom_right.y - icon.size().y / 2;
+                region.top_left.y = y_center - BUTTON_WIDTH / 2;
+                region.bottom_right.y = y_center + BUTTON_WIDTH / 2;
+                handlers.on_tap(&region, m);
+            }
+            icon.void().render_placed(handlers, button_frame, 0.5, 1.0);
+        }
+
         match self {
             Element::Input { active, contents } => {
-                let button_frame = prompt_frame.split_off(Side::Right, 60);
-                if *active {
-                    handlers.on_tap(&button_frame, Msg::Submit);
-                }
-                Text::builder(LINE_HEIGHT, &*ROMAN)
-                    .font(&*MONOSPACE_BOLD)
-                    .scale(MONOSPACE_LINE_HEIGHT as f32)
-                    .literal(">")
-                    .into_text()
-                    .render_placed(handlers, button_frame, 0.5, 0.0);
-
+                prompt_frame.split_off(Side::Bottom, 8);
+                push_icon(&mut prompt_frame, handlers, &*PROMPT_ICON, None);
                 if *active && contents.is_empty() {
-                    let mut button_frame = prompt_frame.split_off(Side::Right, BUTTON_WIDTH);
-                    handlers.on_tap(&button_frame, Msg::ToggleKeyboard);
-                    button_frame.split_off(Side::Top, BUTTON_PADDING_TOP);
-                    (&*KEYBOARD_ICON)
-                        .void()
-                        .render_placed(handlers, button_frame, 0.5, 0.0);
+                    push_icon(
+                        &mut prompt_frame,
+                        handlers,
+                        &*KEYBOARD_ICON,
+                        Some(Msg::ToggleKeyboard),
+                    );
                 }
-
-                mem::drop(prompt_frame)
             }
             Element::File { icon, message, .. } => {
-                let mut button_frame = prompt_frame.split_off(Side::Right, BUTTON_WIDTH);
-                if let Some(m) = message {
-                    handlers.on_tap(&button_frame, m.clone());
-                }
-                button_frame.split_off(Side::Top, 10);
-                icon.void().render_placed(handlers, button_frame, 0.5, 0.0);
-                mem::drop(prompt_frame);
+                prompt_frame.split_off(Side::Bottom, 42);
+                push_icon(&mut prompt_frame, handlers, icon, message.clone());
             }
             Element::CharInput => {
-                let mut button_frame = prompt_frame.split_off(Side::Right, LINE_HEIGHT);
-                handlers.on_tap(&button_frame, Msg::ToggleKeyboard);
-                button_frame.split_off(Side::Top, BUTTON_PADDING_TOP);
-                (*KEYBOARD_ICON)
-                    .borrow()
-                    .void()
-                    .render_placed(handlers, button_frame, 0.5, 0.0);
-                mem::drop(prompt_frame)
+                prompt_frame.split_off(Side::Bottom, 8);
+                push_icon(
+                    &mut prompt_frame,
+                    handlers,
+                    &*KEYBOARD_ICON,
+                    Some(Msg::ToggleKeyboard),
+                );
             }
-            _ => {
-                mem::drop(prompt_frame);
-            }
+            _ => {}
         }
+        mem::drop(prompt_frame);
 
         frame.split_off(Side::Right, DISPLAYWIDTH as i32 - LEFT_MARGIN - LINE_LENGTH);
 
@@ -973,7 +980,6 @@ impl Game {
         if !save_root.exists() {
             fs::create_dir(&save_root)?;
         }
-        dbg!(zvm.unicode_table());
         let pages = Pages::new(zvm.unicode_table());
         let session = Session {
             zvm,

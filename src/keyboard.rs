@@ -6,7 +6,7 @@ use libremarkable::framebuffer::common::DISPLAYWIDTH;
 use rusttype::Font;
 use std::borrow::Borrow;
 
-const KEY_HEIGHT: i32 = 50;
+const KEY_HEIGHT: i32 = 80;
 const LABEL_HEIGHT: i32 = 33;
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -159,8 +159,9 @@ impl Widget for Keyboard {
     }
 
     fn render<'a>(&'a self, handlers: &'a mut Handlers<Self::Message>, mut frame: Frame<'a>) {
+        let row_height = (frame.size().y / self.keys.len() as i32).min(KEY_HEIGHT);
         for row in &self.keys {
-            let mut row_frame = frame.split_off(Side::Top, KEY_HEIGHT);
+            let mut row_frame = frame.split_off(Side::Top, row_height);
             for (i, key) in row.iter().enumerate() {
                 let mut key_frame = row_frame.split_off(Side::Left, key.width);
                 let shift = if key.special { 0 } else { self.shift };
@@ -177,7 +178,7 @@ impl Widget for Keyboard {
                     label
                         .borrow()
                         .void()
-                        .render_placed(handlers, key_frame, alignment, 0.5);
+                        .render_placed(handlers, key_frame, alignment, 0.2);
                 }
             }
         }

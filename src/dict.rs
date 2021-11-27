@@ -28,6 +28,9 @@ impl Dict {
 impl LanguageModel for &Dict {
     fn odds(&self, input: &str, ch: char) -> f32 {
         let Dict(words) = self;
+        let ch = ch.to_ascii_lowercase();
+        // TODO: expensive!
+        let input = input.to_ascii_lowercase();
 
         // TODO: use the real lexing rules from https://inform-fiction.org/zmachine/standards/z1point1/sect13.html
         if !ch.is_ascii_lowercase() && !(PUNCTUATION.contains(ch)) {

@@ -44,7 +44,7 @@ use std::rc::Rc;
 
 use armrest::app::{Applet, Component};
 use folly::dict::*;
-use folly::keyboard::Keyboard;
+use folly::keyboard::{KeyPress, Keyboard};
 
 /*
 For inconsolata, height / width = 0.4766444.
@@ -105,6 +105,7 @@ enum Msg {
     Restore(PathBuf, SaveMeta),
     Resume,
     ReadChar(ZChar),
+    Shift(usize),
 }
 
 enum UserInput {
@@ -353,17 +354,19 @@ struct Page {
 struct Pages {
     contents: Vec<Page>,
     page_number: usize,
+    keyboard: Keyboard,
     show_keyboard: bool,
 }
 
 impl Pages {
-    pub fn new() -> Pages {
+    pub fn new(special: &[char]) -> Pages {
         Pages {
             contents: vec![Page {
                 header: Header { lines: vec![] },
                 body: Stack::new(Vector2::new(DISPLAYWIDTH as i32, TEXT_AREA_HEIGHT)),
             }],
             page_number: 0,
+            keyboard: Keyboard::new(&*MONOSPACE, special),
             show_keyboard: false,
         }
     }
@@ -476,9 +479,12 @@ impl Widget for Pages {
         body.render_split(handlers, &mut frame, Side::Top, 0.5);
 
         if self.show_keyboard && self.page_number + 1 == self.contents.len() {
-            let keyboard = Keyboard::new(&*MONOSPACE);
+            let keyboard = &self.keyboard;
             keyboard
-                .map(|zch| Msg::ReadChar(zch))
+                .map(|keypress| match keypress {
+                    KeyPress::ZChar(zch) => Msg::ReadChar(zch),
+                    KeyPress::Shift(i) => Msg::Shift(i),
+                })
                 .render_placed(handlers, frame, 0.5, 0.5);
         } else {
             frame.split_off(Side::Bottom, 100);
@@ -573,7 +579,7 @@ impl Session {
     }
 
     pub fn restore_menu(&mut self, saves: Vec<PathBuf>, initial_run: bool) {
-        let mut page = Pages::new();
+        let mut page = Pages::new(&[]);
 
         let continue_message = if initial_run {
             " to start from the beginning."
@@ -967,11 +973,13 @@ impl Game {
         if !save_root.exists() {
             fs::create_dir(&save_root)?;
         }
+        dbg!(zvm.unicode_table());
+        let pages = Pages::new(zvm.unicode_table());
         let session = Session {
             zvm,
             zvm_state: Step::Done,
             dict: Arc::new(dict),
-            pages: Pages::new(),
+            pages: pages,
             restore: None,
             save_root,
         };
@@ -980,7 +988,7 @@ impl Game {
     }
 
     fn game_page(root_dir: &Path) -> Pages {
-        let mut games = Pages::new();
+        let mut games = Pages::new(&[]);
 
         let header = Text::builder(LINE_HEIGHT * 3, &*BOLD)
             .literal("Folly. ")
@@ -1249,6 +1257,7 @@ impl Applet for Game {
             Msg::ToggleKeyboard => {
                 let pages = self.pages_mut();
                 pages.show_keyboard = !pages.show_keyboard;
+                pages.keyboard.shift = 0;
 
                 let show_keyboard = pages.show_keyboard;
                 if let Some(Element::Input { active, contents }) =
@@ -1260,6 +1269,10 @@ impl Applet for Game {
                         UserInput::Ink(Ink::new())
                     };
                 }
+            }
+            Msg::Shift(depth) => {
+                let shift = &mut self.pages_mut().keyboard.shift;
+                *shift = if (*shift == depth) { 0 } else { depth };
             }
         }
 

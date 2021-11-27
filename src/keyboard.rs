@@ -9,94 +9,150 @@ use std::borrow::Borrow;
 const KEY_HEIGHT: i32 = 50;
 const LABEL_HEIGHT: i32 = 33;
 
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub enum KeyPress {
+    ZChar(ZChar),
+    Shift(usize),
+}
+
 pub struct Key {
-    label: Text,
     width: i32,
-    zch: ZChar,
+    special: bool,
+    chars: Vec<(Text, KeyPress)>,
 }
 
 pub struct Keyboard {
     keys: Vec<Vec<Key>>,
+    pub shift: usize,
 }
 
 impl Keyboard {
-    pub fn new(font: &'static Font<'static>) -> Keyboard {
-        let key = |width: i32, label: &str, zch: ZChar| Key {
-            label: Text::literal(LABEL_HEIGHT, font, label),
-            width,
-            zch,
+    pub fn new(font: &'static Font<'static>, special: &[char]) -> Keyboard {
+        let mut special_iter = special.iter();
+
+        let mut label = |label: &str| Text::literal(LABEL_HEIGHT, font, label);
+
+        let mut key = |char_slice: &[char]| {
+            let special_ch = special_iter.next();
+            let chars = char_slice
+                .iter()
+                .chain(special_ch.into_iter())
+                .map(|ch| {
+                    let text = label(&ch.to_string());
+                    let zch = ZChar::from_char(*ch, special).expect("Illegal char in constructor!");
+                    (text, KeyPress::ZChar(zch))
+                })
+                .collect();
+
+            Key {
+                width: 90,
+                special: false,
+                chars,
+            }
+        };
+
+        fn letter(ch: char) -> [char; 2] {
+            [ch, ch.to_ascii_uppercase()]
         };
 
         let keys = vec![
             vec![
-                key(80, "Esc", ZChar::ESC),
-                key(90, "1", ZChar('1' as u8)),
-                key(90, "2", ZChar('2' as u8)),
-                key(90, "3", ZChar('3' as u8)),
-                key(90, "4", ZChar('4' as u8)),
-                key(90, "5", ZChar('5' as u8)),
-                key(90, "6", ZChar('6' as u8)),
-                key(90, "7", ZChar('7' as u8)),
-                key(90, "8", ZChar('8' as u8)),
-                key(90, "9", ZChar('9' as u8)),
-                key(90, "0", ZChar('0' as u8)),
-                key(90, "-", ZChar('-' as u8)),
-                key(90, "+", ZChar('+' as u8)),
-                key(100, "Delete", ZChar::DELETE),
+                Key {
+                    width: 80,
+                    special: true,
+                    chars: vec![(label("Esc"), KeyPress::ZChar(ZChar::ESC))],
+                },
+                key(&['1', '!']),
+                key(&['2', '@']),
+                key(&['3', '#']),
+                key(&['4', '$']),
+                key(&['5', '%']),
+                key(&['6', '^']),
+                key(&['7', '&']),
+                key(&['8', '*']),
+                key(&['9', '(']),
+                key(&['0', ')']),
+                key(&['-', '_']),
+                key(&['+', '=']),
+                Key {
+                    width: 100,
+                    special: true,
+                    chars: vec![(label("Delete"), KeyPress::ZChar(ZChar::DELETE))],
+                },
             ],
             vec![
-                key(90, "^", ZChar('\t' as u8)),
-                key(90, "q", ZChar('q' as u8)),
-                key(90, "w", ZChar('w' as u8)),
-                key(90, "e", ZChar('e' as u8)),
-                key(90, "r", ZChar('r' as u8)),
-                key(90, "t", ZChar('t' as u8)),
-                key(90, "y", ZChar('y' as u8)),
-                key(90, "u", ZChar('u' as u8)),
-                key(90, "i", ZChar('i' as u8)),
-                key(90, "o", ZChar('o' as u8)),
-                key(90, "p", ZChar('p' as u8)),
-                key(90, "[", ZChar('[' as u8)),
-                key(90, "]", ZChar(']' as u8)),
-                key(90, "\\", ZChar('\\' as u8)),
+                Key {
+                    width: 90,
+                    special: true,
+                    chars: vec![(label("Tab"), KeyPress::ZChar(ZChar('\t' as u8)))],
+                },
+                key(&letter('q')),
+                key(&letter('w')),
+                key(&letter('e')),
+                key(&letter('r')),
+                key(&letter('t')),
+                key(&letter('y')),
+                key(&letter('u')),
+                key(&letter('i')),
+                key(&letter('o')),
+                key(&letter('p')),
+                key(&['[', '{']),
+                key(&[']', '}']),
+                key(&['\\', '|']),
             ],
             vec![
-                key(110, "Special", ZChar(' ' as u8)),
-                key(90, "a", ZChar('a' as u8)),
-                key(90, "s", ZChar('s' as u8)),
-                key(90, "d", ZChar('d' as u8)),
-                key(90, "f", ZChar('f' as u8)),
-                key(90, "g", ZChar('g' as u8)),
-                key(90, "h", ZChar('h' as u8)),
-                key(90, "j", ZChar('j' as u8)),
-                key(90, "k", ZChar('k' as u8)),
-                key(90, "l", ZChar('l' as u8)),
-                key(90, ":", ZChar(':' as u8)),
-                key(90, "\"", ZChar('\"' as u8)),
-                key(160, "Enter", ZChar::RETURN),
+                Key {
+                    width: 110,
+                    special: true,
+                    chars: vec![(label("Special"), KeyPress::Shift(2))],
+                },
+                key(&letter('a')),
+                key(&letter('s')),
+                key(&letter('d')),
+                key(&letter('f')),
+                key(&letter('g')),
+                key(&letter('h')),
+                key(&letter('j')),
+                key(&letter('k')),
+                key(&letter('l')),
+                key(&[';', ':']),
+                key(&['/', '?']),
+                Key {
+                    width: 160,
+                    special: true,
+                    chars: vec![(label("Return"), KeyPress::ZChar(ZChar::RETURN))],
+                },
             ],
             vec![
-                key(130, "Shift", ZChar(' ' as u8)),
-                key(90, "z", ZChar('z' as u8)),
-                key(90, "x", ZChar('x' as u8)),
-                key(90, "c", ZChar('c' as u8)),
-                key(90, "v", ZChar('v' as u8)),
-                key(90, "b", ZChar('b' as u8)),
-                key(90, "n", ZChar('n' as u8)),
-                key(90, "m", ZChar('m' as u8)),
-                key(90, "<", ZChar('<' as u8)),
-                key(90, ">", ZChar('>' as u8)),
-                key(90, "?", ZChar('?' as u8)),
-                key(230, "Space", ZChar(' ' as u8)),
+                Key {
+                    width: 130,
+                    special: true,
+                    chars: vec![(label("Shift"), KeyPress::Shift(1))],
+                },
+                key(&letter('z')),
+                key(&letter('x')),
+                key(&letter('c')),
+                key(&letter('v')),
+                key(&letter('b')),
+                key(&letter('n')),
+                key(&letter('m')),
+                key(&[',', '<']),
+                key(&['.', '>']),
+                key(&['/', '?']),
+                Key {
+                    width: 230,
+                    special: true,
+                    chars: vec![(label("Space"), KeyPress::ZChar(ZChar(' ' as u8)))],
+                },
             ],
         ];
 
-        Keyboard { keys }
+        Keyboard { keys, shift: 0 }
     }
 }
 
 impl Widget for Keyboard {
-    type Message = ZChar;
+    type Message = KeyPress;
 
     fn size(&self) -> Vector2<i32> {
         Vector2::new(1260, KEY_HEIGHT * self.keys.len() as i32)
@@ -107,18 +163,22 @@ impl Widget for Keyboard {
             let mut row_frame = frame.split_off(Side::Top, KEY_HEIGHT);
             for (i, key) in row.iter().enumerate() {
                 let mut key_frame = row_frame.split_off(Side::Left, key.width);
-                handlers.on_tap(&key_frame, key.zch);
-                let alignment = if key.width == 90 {
-                    0.5
-                } else if i == 0 {
-                    0.0
-                } else {
-                    1.0
-                };
-                key.label
-                    .borrow()
-                    .void()
-                    .render_placed(handlers, key_frame, alignment, 0.5);
+                let shift = if key.special { 0 } else { self.shift };
+                if let Some((label, press)) = key.chars.get(shift) {
+                    handlers.on_tap(&key_frame, press.clone());
+                    let alignment = if !key.special {
+                        0.5
+                    } else if i == 0 {
+                        0.0
+                    } else {
+                        1.0
+                    };
+
+                    label
+                        .borrow()
+                        .void()
+                        .render_placed(handlers, key_frame, alignment, 0.5);
+                }
             }
         }
     }

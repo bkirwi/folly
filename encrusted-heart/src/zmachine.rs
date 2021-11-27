@@ -168,23 +168,27 @@ impl<ZUI> Zmachine<ZUI> {
         };
 
         let unicode_table = if version >= 5 {
-            let address = memory.read_word(0x36) as usize;
-            let size = memory.read_word(address) as usize;
-            if size >= 4 {
-                let table_address = memory.read_word(address + 8) as usize;
-                if table_address == 0 {
-                    None
-                } else {
-                    let mut table_reader = memory.get_reader(table_address);
-                    let table_size = table_reader.word() as usize;
-                    let mut chars = Vec::with_capacity(table_size);
-                    for _ in 0..table_size {
-                        chars.push((table_reader.word() as u32).try_into().unwrap_or('?'));
-                    }
-                    Some(chars)
-                }
-            } else {
+            let address = memory.read_word(0x34) as usize;
+            if address == 0 {
                 None
+            } else {
+                let size = memory.read_word(address) as usize;
+                if size >= 4 {
+                    let table_address = memory.read_word(address + 8) as usize;
+                    if table_address == 0 {
+                        None
+                    } else {
+                        let mut table_reader = memory.get_reader(table_address);
+                        let table_size = table_reader.word() as usize;
+                        let mut chars = Vec::with_capacity(table_size);
+                        for _ in 0..table_size {
+                            chars.push((table_reader.word() as u32).try_into().unwrap_or('?'));
+                        }
+                        Some(chars)
+                    }
+                } else {
+                    None
+                }
             }
         } else {
             None

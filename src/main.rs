@@ -197,8 +197,7 @@ impl Widget for Element {
 
     fn render<'a>(&'a self, handlers: &'a mut Handlers<Self::Message>, mut frame: Frame<'a>) {
         let mut prompt_frame = frame.split_off(Side::Left, LEFT_MARGIN);
-        const BUTTON_PADDING_TOP: i32 = 0;
-        const BUTTON_WIDTH: i32 = 60;
+        const BUTTON_SIZE: i32 = 60;
 
         fn push_icon(
             frame: &mut Frame,
@@ -206,13 +205,13 @@ impl Widget for Element {
             icon: &Image,
             message: Option<Msg>,
         ) {
-            let button_frame = frame.split_off(Side::Right, BUTTON_WIDTH);
+            let button_frame = frame.split_off(Side::Right, BUTTON_SIZE);
             if let Some(m) = message {
                 // TODO: something better than this tedious math.
                 let mut region = button_frame.region();
                 let y_center = region.bottom_right.y - icon.size().y / 2;
-                region.top_left.y = y_center - BUTTON_WIDTH / 2;
-                region.bottom_right.y = y_center + BUTTON_WIDTH / 2;
+                region.top_left.y = y_center - BUTTON_SIZE / 2;
+                region.bottom_right.y = y_center + BUTTON_SIZE / 2;
                 handlers.on_tap(&region, m);
             }
             icon.void().render_placed(handlers, button_frame, 0.5, 1.0);
@@ -596,11 +595,9 @@ impl Session {
 
         let lines = Text::builder(LINE_HEIGHT, &*ROMAN)
             .words("Select a saved game to restore from the list below, or ")
-            .font(&*BOLD)
             .message(Msg::Resume)
             .words("tap here")
             .no_message()
-            .font(&*ROMAN)
             .words(continue_message)
             .wrap(LINE_LENGTH, true);
 
@@ -846,11 +843,6 @@ impl Session {
 
         match result {
             Step::Save(data) => {
-                self.pages.push_element(Element::Line(
-                    false,
-                    Text::line(LINE_HEIGHT, &*ROMAN, "Saving game..."),
-                ));
-
                 let now = chrono::offset::Local::now();
                 let save_file_name = format!("{}.sav", now.format("%Y-%m-%dT%H:%M:%S"));
                 let save_path = self.save_root.join(Path::new(&save_file_name));
@@ -877,7 +869,6 @@ impl Session {
                 let meta_path = save_path.with_extension("meta");
                 fs::write(&meta_path, meta_json).unwrap();
 
-                self.pages.maybe_new_page(LINE_HEIGHT * 3);
                 self.pages.push_advance_space();
                 self.pages.push_element(Element::file_display(
                     &*SAVE_ICON,
@@ -886,8 +877,6 @@ impl Session {
                     None,
                 ));
                 self.pages.push_advance_space();
-
-                eprintln!("Game successfully saved!");
                 self.zvm.handle_save_result(true);
                 self.advance()
             }

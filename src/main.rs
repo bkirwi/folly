@@ -682,6 +682,8 @@ impl Session {
 
             let mut text_builder = Text::builder(44, &*ROMAN);
 
+            let justify = line.iter().any(|out| !out.style.fixed_pitch());
+
             if let Some(BaseOutput { content, .. }) = line.first_mut() {
                 if let Some(i) = content.find(|c| c != ' ').filter(|i| *i != 0) {
                     // The roman font is a bit too small for leading spaces... use monospace for that.
@@ -721,7 +723,7 @@ impl Session {
                     }
                 }
             }
-            for text in text_builder.wrap(LINE_LENGTH, true) {
+            for text in text_builder.wrap(LINE_LENGTH, justify) {
                 self.pages.push_element(Element::Line(false, text));
             }
         }

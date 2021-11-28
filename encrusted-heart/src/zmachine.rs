@@ -1574,13 +1574,13 @@ impl<ZUI: UI> Zmachine<ZUI> {
         match self.memory_output.last_mut() {
             None => {
                 let mut current_style = self.current_style;
-                if self.memory.read_byte(0x11) & 0b0000_0010 != 0 {
+                if self.memory.read_word(0x10) & 0b0000_0010 != 0 {
                     // Force fixed-pitch bit is on!
-                    current_style.0 &= 0b1000
+                    current_style.0 |= 0b1000
                 };
 
                 if !self.disable_output {
-                    self.ui.print(text, self.current_style);
+                    self.ui.print(text, current_style);
                 }
             }
             Some((_, end)) => {

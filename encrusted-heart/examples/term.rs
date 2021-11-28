@@ -248,24 +248,24 @@ fn main() {
                 zvm.handle_save_result(true);
             }
             Step::Restore => {
-                print!("\nFilename [{}]: ", &save_name);
-                io::stdout().flush().unwrap();
+                let mut file = loop {
+                    print!("\nFilename [{}]: ", &save_name);
+                    io::stdout().flush().unwrap();
 
-                let input = get_user_input().unwrap();
-                let mut path = PathBuf::from(&save_dir);
-                let mut data = Vec::new();
-                path.push(input);
+                    let input = get_user_input().unwrap();
+                    let path = PathBuf::from(&input);
+                    match File::open(&path) {
+                        Ok(h) => break h,
+                        Err(e) => println!("Can't open file: {:?}", e),
+                    };
+                };
 
-                if let Ok(handle) = File::open(&path) {
-                    file = handle;
-                } else {
-                    panic!("Can't open that file!!!\n");
-                }
+                let mut save_data = vec![];
 
                 // restore program counter position, stack frames, and dynamic memory
-                file.read_to_end(&mut data)
+                file.read_to_end(&mut save_data)
                     .expect("Error reading save file");
-                zvm.restore(&data);
+                zvm.restore(&save_data);
             }
             Step::ReadChar => {
                 let zscii: ZChar = if is_tty {

@@ -1,6 +1,6 @@
 # Folly
 
-An Z-machine for the reMarkable tablet.
+A Z-machine for the reMarkable tablet.
 
 ![image](https://user-images.githubusercontent.com/1596339/143691049-aa4bb8aa-e5d4-4247-bdcb-2905e478bd25.png)
 

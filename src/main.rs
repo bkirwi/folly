@@ -315,7 +315,7 @@ impl Widget for Element {
                 fn link(builder: B, words: &str, zch: ZChar) -> B {
                     builder
                         .message(Msg::ReadChar(zch))
-                        .font(&*ITALIC)
+                        .font(&*ROMAN)
                         .literal(words)
                 }
 
@@ -655,23 +655,27 @@ impl Session {
             }
         }
 
-        if let Some(last) = current_line.last_mut() {
-            if let Some(stripped) = last.content.trim_end().strip_suffix('>') {
-                last.content = stripped.to_string();
-            }
-        }
-
         lines.push(current_line);
+
+        // Strip trailing whitespace and >s
+        let trim_chars: &[char] = &[' ', '>'];
+        'done: while let Some(last_line) = lines.last_mut() {
+            while let Some(last) = last_line.last_mut() {
+                let trimmed = last.content.trim_end_matches(trim_chars);
+                if trimmed.is_empty() {
+                    last_line.pop();
+                } else {
+                    last.content = trimmed.to_string();
+                    break 'done;
+                }
+            }
+            lines.pop();
+        }
 
         // TODO: reimplement the title paragraph functionality
 
         fn blank(line: &[BaseOutput]) -> bool {
             line.iter().all(|o| o.content.trim().is_empty())
-        }
-
-        // Drop any trailing blank lines before the input area.
-        while lines.last().map_or(false, |l| blank(&l)) {
-            lines.pop();
         }
 
         for mut line in lines {

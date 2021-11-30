@@ -19,8 +19,8 @@ use armrest::{ml, ui};
 use armrest::ink::Ink;
 use armrest::ml::{LanguageModel, Recognizer, Spline};
 use armrest::ui::{
-    Action, Canvas, Fill, Fragment, Frame, Handlers, Image, Line, Region, Side, Stack, Text,
-    TextBuilder, Void, Widget,
+    Action, Canvas, Fragment, Frame, Handlers, Image, Line, Region, Side, Stack, Text, TextBuilder,
+    View, Void, Widget,
 };
 
 use libremarkable::cgmath::{Point2, Vector2};
@@ -195,79 +195,64 @@ impl Widget for Element {
         Vector2::new(width, height)
     }
 
-    fn render<'a>(&'a self, handlers: &'a mut Handlers<Self::Message>, mut frame: Frame<'a>) {
-        let mut prompt_frame = frame.split_off(Side::Left, LEFT_MARGIN);
+    fn render(&self, mut view: View<Msg>) {
+        let mut prompt = view.split_off(Side::Left, LEFT_MARGIN);
         const BUTTON_SIZE: i32 = 60;
 
-        fn push_icon(
-            frame: &mut Frame,
-            handlers: &mut Handlers<Msg>,
-            icon: &Image,
-            message: Option<Msg>,
-        ) {
-            let button_frame = frame.split_off(Side::Right, BUTTON_SIZE);
+        fn push_icon(view: &mut View<Msg>, icon: &Image, message: Option<Msg>) {
+            let mut button_frame = view.split_off(Side::Right, BUTTON_SIZE);
             if let Some(m) = message {
-                // TODO: something better than this tedious math.
-                let mut region = button_frame.region();
-                let y_center = region.bottom_right.y - icon.size().y / 2;
-                region.top_left.y = y_center - BUTTON_SIZE / 2;
-                region.bottom_right.y = y_center + BUTTON_SIZE / 2;
-                handlers.on_tap(&region, m);
+                button_frame
+                    .handlers()
+                    .min_size(Vector2::new(100, 100))
+                    .on_tap(m);
             }
-            icon.void().render_placed(handlers, button_frame, 0.5, 1.0);
+            icon.void().render_placed(button_frame, 0.5, 1.0);
         }
 
         match self {
             Element::Input { active, contents } => {
-                prompt_frame.split_off(Side::Bottom, 8);
-                push_icon(&mut prompt_frame, handlers, &*PROMPT_ICON, None);
+                prompt.split_off(Side::Bottom, 8);
+                push_icon(&mut prompt, &*PROMPT_ICON, None);
                 if *active && contents.is_empty() {
-                    push_icon(
-                        &mut prompt_frame,
-                        handlers,
-                        &*KEYBOARD_ICON,
-                        Some(Msg::ToggleKeyboard),
-                    );
+                    push_icon(&mut prompt, &*KEYBOARD_ICON, Some(Msg::ToggleKeyboard));
                 }
             }
             Element::File { icon, message, .. } => {
-                prompt_frame.split_off(Side::Bottom, 42);
-                push_icon(&mut prompt_frame, handlers, icon, message.clone());
+                prompt.split_off(Side::Bottom, 42);
+                push_icon(&mut prompt, icon, message.clone());
             }
             Element::CharInput => {
-                prompt_frame.split_off(Side::Bottom, 8);
-                push_icon(
-                    &mut prompt_frame,
-                    handlers,
-                    &*KEYBOARD_ICON,
-                    Some(Msg::ToggleKeyboard),
-                );
+                prompt.split_off(Side::Bottom, 8);
+                push_icon(&mut prompt, &*KEYBOARD_ICON, Some(Msg::ToggleKeyboard));
             }
             _ => {}
         }
-        mem::drop(prompt_frame);
+        mem::drop(prompt);
 
-        frame.split_off(Side::Right, DISPLAYWIDTH as i32 - LEFT_MARGIN - LINE_LENGTH);
+        view.split_off(Side::Right, DISPLAYWIDTH as i32 - LEFT_MARGIN - LINE_LENGTH);
 
         match self {
             Element::Break(_) => {}
             Element::Line(center, t) => {
                 if *center {
-                    t.render_placed(handlers, frame, 0.5, 0.0);
+                    t.render_placed(view, 0.5, 0.0);
                 } else {
-                    t.render(handlers, frame);
+                    t.render(view);
                 }
             }
             Element::Input {
                 active, contents, ..
             } => match contents {
                 UserInput::Ink(ink) => {
-                    frame.push_annotation(ink);
+                    view.annotate(ink);
                     if *active {
-                        handlers.on_ink(&frame, |ink| Msg::Input(ink));
-                        Line { y: LINE_HEIGHT - 8 }.render(frame);
+                        view.handlers()
+                            .min_size(Vector2::new(LINE_LENGTH + LINE_HEIGHT, LINE_HEIGHT * 2))
+                            .on_ink(|ink| Msg::Input(ink));
+                        view.draw(&Line { y: LINE_HEIGHT - 8 });
                     } else {
-                        mem::drop(frame);
+                        mem::drop(view);
                     }
                 }
                 UserInput::String(s) => {
@@ -276,11 +261,11 @@ impl Widget for Element {
                         .scale(MONOSPACE_LINE_HEIGHT as f32)
                         .literal(s)
                         .into_text();
-                    text.render_split(handlers, &mut frame, Side::Left, 0.0);
+                    text.render_split(&mut view, Side::Left, 0.0);
                     if *active {
-                        Cursor.render(frame);
+                        view.draw(&Cursor);
                     } else {
-                        mem::drop(frame);
+                        mem::drop(view);
                     }
                 }
             },
@@ -291,20 +276,20 @@ impl Widget for Element {
                 ..
             } => {
                 if let Some(m) = message {
-                    handlers.on_tap(&frame, m.clone());
+                    view.handlers().on_tap(m.clone());
                 }
-                big_text
-                    .discard()
-                    .render_split(handlers, &mut frame, Side::Top, 0.0);
-                small_text.void().render(handlers, frame);
+                big_text.void().render_split(&mut view, Side::Top, 0.0);
+                small_text.void().render(view);
             }
             Element::UpperWindow(lines) => {
                 // TODO: only register these when we're in read-char mode!
-                handlers.on_swipe(&frame, Side::Top, Msg::ReadChar(ZChar::UP));
-                handlers.on_swipe(&frame, Side::Bottom, Msg::ReadChar(ZChar::DOWN));
-                handlers.on_tap(&frame, Msg::ReadChar(ZChar::RETURN));
+                view.handlers()
+                    .on_swipe(Side::Top, Msg::ReadChar(ZChar::UP));
+                view.handlers()
+                    .on_swipe(Side::Bottom, Msg::ReadChar(ZChar::DOWN));
+                view.handlers().on_tap(Msg::ReadChar(ZChar::RETURN));
                 for line in lines {
-                    line.render(handlers, frame.split_off(Side::Top, LINE_HEIGHT));
+                    line.render(view.split_off(Side::Top, LINE_HEIGHT));
                 }
             }
             Element::CharInput => {
@@ -326,7 +311,7 @@ impl Widget for Element {
                 let builder = regular(builder, "  /  ");
                 let builder = link(builder, "return", ZChar::RETURN);
 
-                builder.into_text().render_placed(handlers, frame, 0.5, 0.0)
+                builder.into_text().render_placed(view, 0.5, 0.0)
             }
         }
     }
@@ -344,10 +329,10 @@ impl Widget for Header {
         Vector2::new(LINE_LENGTH, 5 * LINE_HEIGHT)
     }
 
-    fn render(&self, handlers: &mut Handlers<Self::Message>, mut frame: Frame) {
-        frame.split_off(Side::Bottom, LINE_HEIGHT);
+    fn render(&self, mut view: View<Void>) {
+        view.split_off(Side::Bottom, LINE_HEIGHT);
         for line in &self.lines {
-            line.render_split(handlers, &mut frame, Side::Bottom, 0.5)
+            line.render_split(&mut view, Side::Bottom, 0.5)
         }
     }
 }
@@ -473,16 +458,14 @@ impl Widget for Pages {
         Vector2::new(DISPLAYWIDTH as i32, DISPLAYHEIGHT as i32)
     }
 
-    fn render(&self, handlers: &mut Handlers<Self::Message>, mut frame: Frame) {
-        handlers.on_swipe(&frame, Side::Left, Msg::PageRelative(1));
-        handlers.on_swipe(&frame, Side::Right, Msg::PageRelative(-1));
+    fn render(&self, mut view: View<Msg>) {
+        view.handlers().on_swipe(Side::Left, Msg::PageRelative(1));
+        view.handlers().on_swipe(Side::Right, Msg::PageRelative(-1));
 
         let Page { header, body } = &self.contents[self.page_number];
 
-        header
-            .void()
-            .render_split(handlers, &mut frame, Side::Top, 0.5);
-        body.render_split(handlers, &mut frame, Side::Top, 0.5);
+        header.void().render_split(&mut view, Side::Top, 0.5);
+        body.render_split(&mut view, Side::Top, 0.5);
 
         if self.show_keyboard && self.page_number + 1 == self.contents.len() {
             let keyboard = &self.keyboard;
@@ -491,32 +474,32 @@ impl Widget for Pages {
                     KeyPress::ZChar(zch) => Msg::ReadChar(zch),
                     KeyPress::Shift(i) => Msg::Shift(i),
                 })
-                .render_placed(handlers, frame, 0.5, 0.5);
+                .render_placed(view, 0.5, 0.5);
         } else {
-            frame.split_off(Side::Bottom, 100);
+            view.split_off(Side::Bottom, 100);
 
             let roman = &*ROMAN;
             let page_text = Text::literal(LINE_HEIGHT, roman, &(self.page_number + 1).to_string());
 
-            let page_number_start = (frame.size().x - page_text.size().x) / 2;
+            let page_number_start = (DISPLAYWIDTH as i32 - page_text.size().x) / 2;
 
-            let before = frame.split_off(Side::Left, page_number_start);
+            let before = view.split_off(Side::Left, page_number_start);
             if self.page_number > 0 {
                 let left_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, "<");
-                left_arrow.render_placed(handlers, before, 0.98, 0.5);
+                left_arrow.render_placed(before, 0.98, 0.5);
             } else {
                 mem::drop(before);
             }
 
-            let after = frame.split_off(Side::Right, page_number_start);
+            let after = view.split_off(Side::Right, page_number_start);
             if self.page_number + 1 < self.contents.len() {
                 let right_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, ">");
-                right_arrow.render_placed(handlers, after, 0.02, 0.5)
+                right_arrow.render_placed(after, 0.02, 0.5)
             } else {
                 mem::drop(after);
             }
 
-            page_text.render_placed(handlers, frame, 0.5, 0.5);
+            page_text.render_placed(view, 0.5, 0.5);
         }
     }
 }
@@ -1070,7 +1053,7 @@ impl Widget for Game {
         Vector2::new(DISPLAYWIDTH as i32, DISPLAYHEIGHT as i32)
     }
 
-    fn render(&self, handlers: &mut Handlers<Msg>, frame: Frame) {
+    fn render(&self, view: View<Msg>) {
         let current_pages = match &self.state {
             GameState::Playing { session, .. } => match &session.restore {
                 None => &session.pages,
@@ -1079,7 +1062,7 @@ impl Widget for Game {
             GameState::Init { games } => games,
         };
 
-        current_pages.render(handlers, frame);
+        current_pages.render(view);
     }
 }
 

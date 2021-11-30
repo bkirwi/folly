@@ -1,5 +1,5 @@
 use armrest::geom::Side;
-use armrest::ui::{Frame, Handlers, Text, Widget};
+use armrest::ui::{Frame, Handlers, Text, View, Widget};
 use encrusted_heart::zscii::ZChar;
 use libremarkable::cgmath::Vector2;
 use libremarkable::framebuffer::common::DISPLAYWIDTH;
@@ -158,15 +158,15 @@ impl Widget for Keyboard {
         Vector2::new(1260, KEY_HEIGHT * self.keys.len() as i32)
     }
 
-    fn render<'a>(&'a self, handlers: &'a mut Handlers<Self::Message>, mut frame: Frame<'a>) {
-        let row_height = (frame.size().y / self.keys.len() as i32).min(KEY_HEIGHT);
+    fn render(&self, mut view: View<KeyPress>) {
+        let row_height = (view.size().y / self.keys.len() as i32).min(KEY_HEIGHT);
         for row in &self.keys {
-            let mut row_frame = frame.split_off(Side::Top, row_height);
+            let mut row_frame = view.split_off(Side::Top, row_height);
             for (i, key) in row.iter().enumerate() {
                 let mut key_frame = row_frame.split_off(Side::Left, key.width);
                 let shift = if key.special { 0 } else { self.shift };
                 if let Some((label, press)) = key.chars.get(shift) {
-                    handlers.on_tap(&key_frame, press.clone());
+                    key_frame.handlers().on_tap(press.clone());
                     let alignment = if !key.special {
                         0.5
                     } else if i == 0 {
@@ -178,7 +178,7 @@ impl Widget for Keyboard {
                     label
                         .borrow()
                         .void()
-                        .render_placed(handlers, key_frame, alignment, 0.2);
+                        .render_placed(key_frame, alignment, 0.2);
                 }
             }
         }

@@ -293,25 +293,14 @@ impl Widget for Element {
                 }
             }
             Element::CharInput => {
-                type B = TextBuilder<'static, Msg>;
-                fn regular(builder: B, words: &str) -> B {
-                    builder.no_message().font(&*ROMAN).literal(words)
-                }
-                fn link(builder: B, words: &str, zch: ZChar) -> B {
-                    builder
-                        .message(Msg::ReadChar(zch))
-                        .font(&*ROMAN)
-                        .literal(words)
-                }
+                view.handlers()
+                    .min_size(Vector2::new(0, LINE_HEIGHT * 2))
+                    .on_tap(Msg::ReadChar(ZChar(' ' as u8)));
 
-                let builder = Text::builder(LINE_HEIGHT, &*ROMAN);
-                let builder = link(builder, "escape", ZChar::ESC);
-                let builder = regular(builder, "  /  ");
-                let builder = link(builder, "space", ZChar::from_char(' ', &[]).unwrap());
-                let builder = regular(builder, "  /  ");
-                let builder = link(builder, "return", ZChar::RETURN);
-
-                builder.into_text().render_placed(view, 0.5, 0.0)
+                Text::builder(LINE_HEIGHT, &*BOLD)
+                    .literal("[ space ]")
+                    .into_text()
+                    .render_placed(view, 0.5, 0.0);
             }
         }
     }
@@ -465,7 +454,6 @@ impl Widget for Pages {
         let Page { header, body } = &self.contents[self.page_number];
 
         header.void().render_split(&mut view, Side::Top, 0.5);
-        body.render_split(&mut view, Side::Top, 0.5);
 
         if self.show_keyboard && self.page_number + 1 == self.contents.len() {
             let keyboard = &self.keyboard;
@@ -474,16 +462,18 @@ impl Widget for Pages {
                     KeyPress::ZChar(zch) => Msg::ReadChar(zch),
                     KeyPress::Shift(i) => Msg::Shift(i),
                 })
-                .render_placed(view, 0.5, 0.5);
+                .render_split(&mut view, Side::Bottom, 0.5);
         } else {
-            view.split_off(Side::Bottom, 100);
+            let footer_height = DISPLAYHEIGHT as i32 - 5 * LINE_HEIGHT - TEXT_AREA_HEIGHT;
+            let mut footer = view.split_off(Side::Bottom, footer_height);
+            footer.split_off(Side::Bottom, 100);
 
             let roman = &*ROMAN;
             let page_text = Text::literal(LINE_HEIGHT, roman, &(self.page_number + 1).to_string());
 
             let page_number_start = (DISPLAYWIDTH as i32 - page_text.size().x) / 2;
 
-            let before = view.split_off(Side::Left, page_number_start);
+            let before = footer.split_off(Side::Left, page_number_start);
             if self.page_number > 0 {
                 let left_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, "<");
                 left_arrow.render_placed(before, 0.98, 0.5);
@@ -491,7 +481,7 @@ impl Widget for Pages {
                 mem::drop(before);
             }
 
-            let after = view.split_off(Side::Right, page_number_start);
+            let after = footer.split_off(Side::Right, page_number_start);
             if self.page_number + 1 < self.contents.len() {
                 let right_arrow = Text::line(LINE_HEIGHT * 2 / 3, roman, ">");
                 right_arrow.render_placed(after, 0.02, 0.5)
@@ -499,8 +489,10 @@ impl Widget for Pages {
                 mem::drop(after);
             }
 
-            page_text.render_placed(view, 0.5, 0.5);
+            page_text.render_placed(footer, 0.5, 0.5);
         }
+
+        body.render(view);
     }
 }
 
@@ -671,19 +663,6 @@ impl Session {
 
             let justify = line.iter().any(|out| !out.style.fixed_pitch());
 
-            if let Some(BaseOutput { content, .. }) = line.first_mut() {
-                if let Some(i) = content.find(|c| c != ' ').filter(|i| *i != 0) {
-                    // The roman font is a bit too small for leading spaces... use monospace for that.
-                    text_builder = text_builder
-                        .font(&*MONOSPACE)
-                        .scale(MONOSPACE_LINE_HEIGHT as f32)
-                        .literal(&" ".repeat(i))
-                        .font(&*ROMAN)
-                        .scale(LINE_HEIGHT as f32);
-                    *content = content.trim_start().to_string();
-                }
-            }
-
             for BaseOutput { style, content } in line {
                 // In theory we may want to support multiple of these at once,
                 // but we're not required to, so we don't just yet.
@@ -717,18 +696,22 @@ impl Session {
     }
 
     pub fn advance(&mut self) -> Step {
+        // Remove any trailing cruft that shouldn't stay on the page, like menus.
+        while matches!(
+            self.pages.last().body.last(),
+            Some(Element::Break(_)) | Some(Element::UpperWindow(_)) | Some(Element::CharInput)
+        ) {
+            self.pages.last_mut().body.pop();
+        }
+
         // If there is a trailing input element, mark as inactive
         if let Some(Element::Input { active, .. }) = &mut self.pages.last_mut().body.last_mut() {
             *active = false;
         }
 
-        let was_read_char = matches!(self.pages.last().body.last(), Some(Element::CharInput));
-        if was_read_char {
-            self.pages.last_mut().body.pop();
-            while matches!(self.pages.last().body.last(), Some(Element::Break(_))) {
-                self.pages.last_mut().body.pop();
-            }
-        }
+        let on_last_page = self.pages.page_number + 1 == self.pages.contents.len();
+
+        let mut force_keyboard = false;
 
         // if the upper window is displaying some big quote box, collapse it down.
         self.zvm.ui.resolve_upper_height();
@@ -739,9 +722,7 @@ impl Session {
         if self.zvm.ui.is_cleared() {
             self.pages.push_section_break();
             self.pages.maybe_new_page(TEXT_AREA_HEIGHT);
-            // We should only automatically turn the page if the user tapped a link...
-            // doing it after async handwriting input is too jarring.
-            if was_read_char {
+            if on_last_page {
                 self.pages.page_relative(1);
             }
         } else {
@@ -777,42 +758,97 @@ impl Session {
                 .position(|p| p.first().map_or(true, |(s, _)| !s.reverse_video()))
                 .unwrap_or(upper_window.len());
 
+            fn body_text(line: &[(TextStyle, char)]) -> Text<Msg> {
+                let text: String = line.iter().map(|(_, c)| c).collect();
+                // We create the builder with ROMAN font so we have the same baseline.
+                Text::builder(LINE_HEIGHT, &*ROMAN)
+                    .font(&*MONOSPACE)
+                    .scale(MONOSPACE_LINE_HEIGHT as f32)
+                    .literal(&text)
+                    .into_text()
+            }
+
             fn blank_line(line: &[(TextStyle, char)]) -> bool {
                 line.iter()
                     .all(|(s, c)| !s.reverse_video() & c.is_ascii_whitespace())
             }
 
-            let first_nonblank = upper_window[cut_index..]
-                .iter()
-                .position(|l| !blank_line(l))
-                .map_or(upper_window.len(), |i| i + cut_index);
+            fn reversed_span(line: &[(TextStyle, char)]) -> Option<(usize, usize)> {
+                let mut start = None;
+                let mut end = None;
+                for (i, (style, char)) in line.iter().enumerate() {
+                    if !style.reverse_video() && *char != ' ' {
+                        return None;
+                    }
 
-            let last_nonblank = upper_window
-                .iter()
-                .rposition(|l| !blank_line(l))
-                .map_or(0, |i| i + 1);
-
-            if first_nonblank < last_nonblank {
-                let remaining_lines = upper_window[first_nonblank..last_nonblank]
-                    .iter()
-                    .map(|line| {
-                        let text: String =
-                            line.iter().take(CHARS_PER_LINE).map(|(_, c)| c).collect();
-                        // We create the builder with ROMAN font so we have the same baseline.
-                        Text::builder(LINE_HEIGHT, &*ROMAN)
-                            .font(&*MONOSPACE)
-                            .scale(MONOSPACE_LINE_HEIGHT as f32)
-                            .literal(&text)
-                            .into_text()
-                    })
-                    .collect::<Vec<_>>();
-
-                if matches!(self.pages.last().body.last(), Some(Element::UpperWindow(_))) {
-                    self.pages.last_mut().body.pop();
+                    if start.is_none() {
+                        if style.reverse_video() {
+                            start = Some(i);
+                        }
+                    } else if end.is_none() {
+                        if !style.reverse_video() {
+                            end = Some(i);
+                        }
+                    } else {
+                        if style.reverse_video() {
+                            return None;
+                        }
+                    }
                 }
 
-                self.pages
-                    .push_element(Element::UpperWindow(remaining_lines));
+                // FIXME: really ought to pad all lines out to the screen width at this point
+                if start.is_some() && end.is_none() {
+                    end = Some(line.len());
+                }
+
+                Some((start?, end?))
+            }
+
+            fn quote_box(upper_window: &[Vec<(TextStyle, char)>]) -> Option<Vec<Text<Msg>>> {
+                let top = upper_window
+                    .iter()
+                    .position(|l| !blank_line(l))
+                    .unwrap_or(upper_window.len());
+
+                let bottom = upper_window
+                    .iter()
+                    .rposition(|l| !blank_line(l))
+                    .map_or(0, |i| i + 1);
+
+                if !(top < bottom) {
+                    return None;
+                }
+
+                let (left, right) = reversed_span(&upper_window[top])?;
+                for line in &upper_window[top..bottom] {
+                    let (l, r) = reversed_span(line)?;
+                    if l != left || r != right {
+                        return None;
+                    }
+                }
+
+                let quote = upper_window[top..bottom]
+                    .iter()
+                    .map(|line| body_text(&line[left..right]))
+                    .collect();
+
+                Some(quote)
+            }
+
+            if let Some(quote_box) = quote_box(&upper_window[cut_index..]) {
+                for line in quote_box {
+                    self.pages.push_element(Element::Line(true, line));
+                }
+            } else {
+                if !upper_window[cut_index..].iter().all(|l| blank_line(l)) {
+                    force_keyboard = true;
+                    self.pages.push_element(Element::UpperWindow(
+                        upper_window[cut_index..]
+                            .iter()
+                            .map(|line| body_text(&line[..CHARS_PER_LINE.min(line.len())]))
+                            .collect(),
+                    ));
+                }
             }
 
             upper_window[..cut_index]
@@ -871,15 +907,19 @@ impl Session {
             }
             Step::Restore => result,
             Step::ReadChar => {
-                self.pages.push_advance_space();
-                self.pages.push_element(Element::CharInput);
+                if force_keyboard {
+                    self.pages.show_keyboard = true;
+                } else {
+                    self.pages.push_advance_space();
+                    self.pages.push_element(Element::CharInput);
+                }
                 result
             }
             _ => {
                 self.pages.show_keyboard = false;
 
                 // Add a prompt
-                self.pages.maybe_new_page(LINE_HEIGHT * 3);
+                self.pages.maybe_new_page(LINE_HEIGHT * 4);
                 self.pages.push_advance_space();
                 self.pages.push_element(Element::Input {
                     active: true,

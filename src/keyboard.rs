@@ -6,7 +6,9 @@ use libremarkable::framebuffer::common::DISPLAYWIDTH;
 use rusttype::Font;
 use std::borrow::Borrow;
 
-const KEY_HEIGHT: i32 = 80;
+const KEYBOARD_WIDTH: i32 = 1260;
+const KEY_HEIGHT: i32 = 60;
+const KEY_PADDING: i32 = 10;
 const LABEL_HEIGHT: i32 = 33;
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -18,6 +20,7 @@ pub enum KeyPress {
 pub struct Key {
     width: i32,
     special: bool,
+    align: f32,
     chars: Vec<(Text, KeyPress)>,
 }
 
@@ -47,6 +50,7 @@ impl Keyboard {
             Key {
                 width: 90,
                 special: false,
+                align: 0.5,
                 chars,
             }
         };
@@ -60,6 +64,7 @@ impl Keyboard {
                 Key {
                     width: 80,
                     special: true,
+                    align: 0.0,
                     chars: vec![(label("Esc"), KeyPress::ZChar(ZChar::ESC))],
                 },
                 key(&['1', '!']),
@@ -77,12 +82,14 @@ impl Keyboard {
                 Key {
                     width: 100,
                     special: true,
+                    align: 1.0,
                     chars: vec![(label("Delete"), KeyPress::ZChar(ZChar::DELETE))],
                 },
             ],
             vec![
                 Key {
                     width: 90,
+                    align: 0.0,
                     special: true,
                     chars: vec![(label("Tab"), KeyPress::ZChar(ZChar('\t' as u8)))],
                 },
@@ -104,7 +111,8 @@ impl Keyboard {
                 Key {
                     width: 110,
                     special: true,
-                    chars: vec![(label("Special"), KeyPress::Shift(2))],
+                    align: 0.0,
+                    chars: vec![(label("Extra"), KeyPress::Shift(2))],
                 },
                 key(&letter('a')),
                 key(&letter('s')),
@@ -116,10 +124,11 @@ impl Keyboard {
                 key(&letter('k')),
                 key(&letter('l')),
                 key(&[';', ':']),
-                key(&['/', '?']),
+                key(&['\'', '"']),
                 Key {
                     width: 160,
                     special: true,
+                    align: 1.0,
                     chars: vec![(label("Return"), KeyPress::ZChar(ZChar::RETURN))],
                 },
             ],
@@ -127,6 +136,7 @@ impl Keyboard {
                 Key {
                     width: 130,
                     special: true,
+                    align: 0.0,
                     chars: vec![(label("Shift"), KeyPress::Shift(1))],
                 },
                 key(&letter('z')),
@@ -140,9 +150,54 @@ impl Keyboard {
                 key(&['.', '>']),
                 key(&['/', '?']),
                 Key {
-                    width: 230,
+                    width: 100,
                     special: true,
+                    align: 0.0,
+                    chars: vec![],
+                },
+                Key {
+                    width: 130,
+                    special: true,
+                    align: 1.0,
+                    chars: vec![(label("Shift"), KeyPress::Shift(1))],
+                },
+            ],
+            vec![
+                Key {
+                    width: 360,
+                    special: true,
+                    align: 0.0,
+                    chars: vec![],
+                },
+                Key {
+                    width: 540,
+                    special: true,
+                    align: 0.5,
                     chars: vec![(label("Space"), KeyPress::ZChar(ZChar(' ' as u8)))],
+                },
+                Key {
+                    width: 90,
+                    special: true,
+                    align: 0.5,
+                    chars: vec![(label("←"), KeyPress::ZChar(ZChar::LEFT))],
+                },
+                Key {
+                    width: 90,
+                    special: true,
+                    align: 0.5,
+                    chars: vec![(label("↑"), KeyPress::ZChar(ZChar::UP))],
+                },
+                Key {
+                    width: 90,
+                    special: true,
+                    align: 0.5,
+                    chars: vec![(label("↓"), KeyPress::ZChar(ZChar::DOWN))],
+                },
+                Key {
+                    width: 90,
+                    special: true,
+                    align: 0.5,
+                    chars: vec![(label("→"), KeyPress::ZChar(ZChar::RIGHT))],
                 },
             ],
         ];
@@ -155,30 +210,30 @@ impl Widget for Keyboard {
     type Message = KeyPress;
 
     fn size(&self) -> Vector2<i32> {
-        Vector2::new(1260, KEY_HEIGHT * self.keys.len() as i32)
+        Vector2::new(
+            KEYBOARD_WIDTH,
+            KEY_HEIGHT * self.keys.len() as i32 + KEY_PADDING,
+        )
     }
 
     fn render(&self, mut view: View<KeyPress>) {
-        let row_height = (view.size().y / self.keys.len() as i32).min(KEY_HEIGHT);
-        for row in &self.keys {
+        for (i, row) in self.keys.iter().enumerate() {
+            let row_height = if (i + 1 == self.keys.len()) {
+                KEY_HEIGHT + KEY_PADDING
+            } else {
+                KEY_HEIGHT
+            };
             let mut row_frame = view.split_off(Side::Top, row_height);
             for (i, key) in row.iter().enumerate() {
                 let mut key_frame = row_frame.split_off(Side::Left, key.width);
                 let shift = if key.special { 0 } else { self.shift };
                 if let Some((label, press)) = key.chars.get(shift) {
                     key_frame.handlers().on_tap(press.clone());
-                    let alignment = if !key.special {
-                        0.5
-                    } else if i == 0 {
-                        0.0
-                    } else {
-                        1.0
-                    };
 
                     label
                         .borrow()
                         .void()
-                        .render_placed(key_frame, alignment, 0.2);
+                        .render_placed(key_frame, key.align, 0.2);
                 }
             }
         }

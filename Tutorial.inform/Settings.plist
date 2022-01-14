@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>IFCompilerOptions</key>
+	<dict/>
+	<key>IFSettingNaturalInform</key>
+	<true/>
+	<key>IFLibrarySettings</key>
+	<dict/>
+	<key>IFSettingLibraryToUse</key>
+	<string>Natural</string>
+	<key>IFMiscSettings</key>
+	<dict/>
+	<key>IFSettingElasticTabs</key>
+	<false/>
+	<key>IFOutputSettings</key>
+	<dict>
+		<key>IFSettingCreateBlorb</key>
+		<false/>
+		<key>IFSettingZCodeVersion</key>
+		<integer>8</integer>
+		<key>IFSettingNobbleRng</key>
+		<false/>
+	</dict>
+</dict>
+</plist>

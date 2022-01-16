@@ -5,7 +5,7 @@ extern crate enum_primitive;
 extern crate lazy_static;
 
 use std::borrow::Borrow;
-use std::collections::BTreeSet;
+
 use std::{fs, io, mem, thread};
 
 use std::fs::{File, OpenOptions};
@@ -14,14 +14,11 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 
-use armrest::{ml, ui};
+use armrest::ml;
 
 use armrest::ink::Ink;
-use armrest::ml::{LanguageModel, Recognizer, Spline};
-use armrest::ui::{
-    Action, Canvas, Fragment, Frame, Handlers, Image, Line, Region, Side, Stack, Text, TextBuilder,
-    View, Void, Widget,
-};
+use armrest::ml::{Recognizer, Spline};
+use armrest::ui::{Canvas, Fragment, Image, Line, Side, Stack, Text, View, Void, Widget};
 
 use libremarkable::cgmath::{Point2, Vector2};
 
@@ -35,15 +32,13 @@ use rusttype::Font;
 use serde::{Deserialize, Serialize};
 
 use encrusted_heart::options::Options;
-use encrusted_heart::traits::{BaseOutput, BaseUI, TextStyle, UI};
+use encrusted_heart::traits::{BaseOutput, BaseUI, TextStyle};
 use encrusted_heart::zmachine::{Step, Zmachine};
 use encrusted_heart::zscii::ZChar;
 use regex::Regex;
-use std::cell::Cell;
-use std::rc::Rc;
 
 use armrest::app::{Applet, Component};
-use armrest::geom::Regional;
+
 use folly::dict::*;
 use folly::keyboard::{KeyPress, Keyboard};
 
@@ -76,25 +71,25 @@ lazy_static! {
         Font::from_bytes(include_bytes!("../fonts/Inconsolata-Bold.ttf").as_ref()).unwrap();
     static ref LONG_WHITESPACE: Regex = Regex::new("\\s\\s\\s+").unwrap();
     static ref PROMPT_ICON: Image = Image::new(
-        image::load_from_memory_with_format(include_bytes!("chevron.png"), image::ImageFormat::PNG)
+        image::load_from_memory_with_format(include_bytes!("chevron.png"), image::ImageFormat::Png)
             .unwrap()
             .to_rgb()
     );
     static ref KEYBOARD_ICON: Image = Image::new(
         image::load_from_memory_with_format(
             include_bytes!("keyboard.png"),
-            image::ImageFormat::PNG
+            image::ImageFormat::Png
         )
         .unwrap()
         .to_rgb()
     );
     static ref GAME_ICON: Image = Image::new(
-        image::load_from_memory_with_format(include_bytes!("book.png"), image::ImageFormat::PNG)
+        image::load_from_memory_with_format(include_bytes!("book.png"), image::ImageFormat::Png)
             .unwrap()
             .to_rgb()
     );
     static ref SAVE_ICON: Image = Image::new(
-        image::load_from_memory_with_format(include_bytes!("restore.png"), image::ImageFormat::PNG)
+        image::load_from_memory_with_format(include_bytes!("restore.png"), image::ImageFormat::Png)
             .unwrap()
             .to_rgb()
     );
@@ -115,7 +110,7 @@ enum Msg {
 }
 
 enum UserInput {
-    Ink(Ink),
+    Ink(Vec<Ink>),
     String(String),
 }
 
@@ -214,8 +209,13 @@ impl Widget for Element {
             Element::Input { active, contents } => {
                 prompt.split_off(Side::Bottom, 8);
                 push_icon(&mut prompt, &*PROMPT_ICON, None);
-                if *active && contents.is_empty() {
-                    push_icon(&mut prompt, &*KEYBOARD_ICON, Some(Msg::ToggleKeyboard));
+                if *active {
+                    let msg = if contents.is_empty() {
+                        Some(Msg::ToggleKeyboard)
+                    } else {
+                        None
+                    };
+                    push_icon(&mut prompt, &*KEYBOARD_ICON, msg);
                 }
             }
             Element::File { icon, message, .. } => {
@@ -245,7 +245,9 @@ impl Widget for Element {
                 active, contents, ..
             } => match contents {
                 UserInput::Ink(ink) => {
-                    view.annotate(ink);
+                    for i in ink {
+                        view.annotate(i);
+                    }
                     if *active {
                         view.handlers()
                             .min_size(Vector2::new(LINE_LENGTH + LINE_HEIGHT, LINE_HEIGHT * 2))
@@ -320,7 +322,7 @@ impl Widget for Header {
 
     fn render(&self, mut view: View<Void>) {
         view.split_off(Side::Bottom, LINE_HEIGHT);
-        for line in &self.lines {
+        for line in self.lines.iter().rev() {
             line.render_split(&mut view, Side::Bottom, 0.5)
         }
     }
@@ -653,7 +655,7 @@ impl Session {
             line.iter().all(|o| o.content.trim().is_empty())
         }
 
-        for mut line in lines {
+        for line in lines {
             if blank(&line) {
                 self.pages.push_advance_space();
                 continue;
@@ -923,7 +925,7 @@ impl Session {
                 self.pages.push_advance_space();
                 self.pages.push_element(Element::Input {
                     active: true,
-                    contents: UserInput::Ink(Ink::new()),
+                    contents: UserInput::Ink(vec![]),
                 });
 
                 result
@@ -1114,18 +1116,18 @@ impl Applet for Game {
             Msg::Input(ink) => {
                 if let GameState::Playing { session } = &mut self.state {
                     if let Some(Element::Input {
-                        active,
+                        active: _,
                         contents: UserInput::Ink(existing_ink),
                     }) = &mut session.pages.last_mut().body.last_mut()
                     {
-                        existing_ink.append(ink, 0.5);
+                        existing_ink.push(ink);
                         self.awaiting_ink += 1;
+                        let mut merged = Ink::new();
+                        for i in existing_ink {
+                            merged.append(i.clone(), 0.5);
+                        }
                         self.ink_tx
-                            .send((
-                                existing_ink.clone(),
-                                session.dict.clone(),
-                                self.awaiting_ink,
-                            ))
+                            .send((merged, session.dict.clone(), self.awaiting_ink))
                             .unwrap();
                     }
                 }
@@ -1134,19 +1136,20 @@ impl Applet for Game {
                 if let GameState::Playing { session } = &mut self.state {
                     // TODO: should this submit the string contents also?
                     if let Some(Element::Input {
-                        active,
+                        active: _,
                         contents: UserInput::Ink(existing_ink),
                     }) = &mut session.pages.last_mut().body.last_mut()
                     {
                         if existing_ink.len() == 0 {
                             // submit the blank ink!
                             self.awaiting_ink += 1;
+
+                            let mut merged = Ink::new();
+                            for i in existing_ink {
+                                merged.append(i.clone(), 0.5);
+                            }
                             self.ink_tx
-                                .send((
-                                    existing_ink.clone(),
-                                    session.dict.clone(),
-                                    self.awaiting_ink,
-                                ))
+                                .send((merged, session.dict.clone(), self.awaiting_ink))
                                 .unwrap();
                         }
                     }
@@ -1218,8 +1221,10 @@ impl Applet for Game {
             }
             Msg::ReadChar(zch) => {
                 if let GameState::Playing { session } = &mut self.state {
-                    if let Some(Element::Input { active, contents }) =
-                        &mut session.pages.last_mut().body.last_mut()
+                    if let Some(Element::Input {
+                        active: _,
+                        contents,
+                    }) = &mut session.pages.last_mut().body.last_mut()
                     {
                         match zch {
                             ZChar::ESC => {}
@@ -1284,19 +1289,21 @@ impl Applet for Game {
                 pages.keyboard.shift = 0;
 
                 let show_keyboard = pages.show_keyboard;
-                if let Some(Element::Input { active, contents }) =
-                    &mut pages.last_mut().body.last_mut()
+                if let Some(Element::Input {
+                    active: _,
+                    contents,
+                }) = &mut pages.last_mut().body.last_mut()
                 {
                     *contents = if show_keyboard {
                         UserInput::String(String::new())
                     } else {
-                        UserInput::Ink(Ink::new())
+                        UserInput::Ink(vec![])
                     };
                 }
             }
             Msg::Shift(depth) => {
                 let shift = &mut self.pages_mut().keyboard.shift;
-                *shift = if (*shift == depth) { 0 } else { depth };
+                *shift = if *shift == depth { 0 } else { depth };
             }
         }
 
@@ -1311,7 +1318,7 @@ fn main() {
     let mut app = armrest::app::App::new();
 
     let (ink_tx, ink_rx) = mpsc::channel::<(Ink, Arc<Dict>, usize)>();
-    let mut wakeup = app.wakeup();
+    let wakeup = app.wakeup();
 
     let mut ink_log = OpenOptions::new()
         .append(true)
@@ -1326,7 +1333,14 @@ fn main() {
         let _thread = thread::spawn(move || {
             let mut recognizer: Recognizer<Spline> = ml::Recognizer::new().unwrap();
 
-            for (i, dict, n) in ink_rx {
+            while let Ok(mut msg) = ink_rx.recv() {
+                // We only care about the last message!
+                while let Ok(m) = ink_rx.try_recv() {
+                    msg = m;
+                }
+
+                let (i, dict, n) = msg;
+
                 let string = recognizer
                     .recognize(
                         &i,

@@ -9,7 +9,7 @@ description = "A z-machine for the reMarkable tablet"
 repository = "https://github.com/bkirwi/folly"
 readme = "README.md"
 license = "MIT"
-edition = "2018"
+edition = "2021"
 
 [workspace]
 members = ["encrusted-heart"]
@@ -28,6 +28,7 @@ regex = "1.1.0"
 itertools = "0.10.1"
 termion = "1.5.6"
 armrest = { path = "../armrest" }
-libremarkable = { version = "0.5.0", path = "../libremarkable" }
+libremarkable = { version = "0.5.0", path = "../libremarkable", default-features = false, features = ['framebuffer']}
 rusttype = "0.8.2"
 chrono = "0.4.19"
+image = "0.23.14"

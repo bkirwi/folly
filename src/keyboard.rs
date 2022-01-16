@@ -1,8 +1,8 @@
 use armrest::geom::Side;
-use armrest::ui::{Frame, Handlers, Text, View, Widget};
+use armrest::ui::{Text, View, Widget};
 use encrusted_heart::zscii::ZChar;
 use libremarkable::cgmath::Vector2;
-use libremarkable::framebuffer::common::DISPLAYWIDTH;
+
 use rusttype::Font;
 use std::borrow::Borrow;
 
@@ -33,7 +33,7 @@ impl Keyboard {
     pub fn new(font: &'static Font<'static>, special: &[char]) -> Keyboard {
         let mut special_iter = special.iter();
 
-        let mut label = |label: &str| Text::literal(LABEL_HEIGHT, font, label);
+        let label = |label: &str| Text::literal(LABEL_HEIGHT, font, label);
 
         let mut key = |char_slice: &[char]| {
             let special_ch = special_iter.next();
@@ -218,13 +218,13 @@ impl Widget for Keyboard {
 
     fn render(&self, mut view: View<KeyPress>) {
         for (i, row) in self.keys.iter().enumerate() {
-            let row_height = if (i + 1 == self.keys.len()) {
+            let row_height = if i + 1 == self.keys.len() {
                 KEY_HEIGHT + KEY_PADDING
             } else {
                 KEY_HEIGHT
             };
             let mut row_frame = view.split_off(Side::Top, row_height);
-            for (i, key) in row.iter().enumerate() {
+            for (_i, key) in row.iter().enumerate() {
                 let mut key_frame = row_frame.split_off(Side::Left, key.width);
                 let shift = if key.special { 0 } else { self.shift };
                 if let Some((label, press)) = key.chars.get(shift) {

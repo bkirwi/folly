@@ -1315,6 +1315,22 @@ fn main() {
     let root_dir =
         PathBuf::from(std::env::var("FOLLY_ROOT").unwrap_or("/home/root/folly".to_string()));
 
+    if !root_dir.exists() {
+        eprintln!(
+            "{} does not exist! Creating and prepopulating it.",
+            root_dir.to_string_lossy()
+        );
+        fs::create_dir_all(&root_dir)
+            .expect("Unable to (recursively) create the FOLLY_ROOT directory.");
+        let mut tutorial_path = root_dir.clone();
+        tutorial_path.push("Folly Tutorial.z8");
+        fs::write(
+            &tutorial_path,
+            include_bytes!("../Tutorial.inform/Tutorial.z8"),
+        )
+        .expect("Unable to write to newly-created directory.");
+    }
+
     let mut app = armrest::app::App::new();
 
     let (ink_tx, ink_rx) = mpsc::channel::<(Ink, Arc<Dict>, usize)>();

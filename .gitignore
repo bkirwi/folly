@@ -3,3 +3,5 @@
 **/*.rs.bk
 /build
 /Tutorial.inform/Skein.skein
+/Tutorial.inform/Build/
+/Tutorial.inform/Index/

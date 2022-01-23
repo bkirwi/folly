@@ -150,6 +150,7 @@ pub struct Zmachine<ZUI> {
     disable_output: bool,
     memory_output: Vec<(usize, usize)>,
     current_style: TextStyle,
+    current_font: u16,
 }
 
 impl<ZUI> Zmachine<ZUI> {
@@ -222,6 +223,7 @@ impl<ZUI> Zmachine<ZUI> {
             disable_output: false,
             memory_output: vec![],
             current_style: TextStyle::default(),
+            current_font: 1,
         };
 
         zvm.set_dynamic_headers();
@@ -1574,7 +1576,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
         match self.memory_output.last_mut() {
             None => {
                 let mut current_style = self.current_style;
-                if self.memory.read_word(0x10) & 0b0000_0010 != 0 {
+                if self.current_font == 4 || self.memory.read_word(0x10) & 0b0000_0010 != 0 {
                     // Force fixed-pitch bit is on!
                     current_style.0 |= 0b1000
                 };
@@ -2325,11 +2327,19 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     // EXT_1004
     fn do_set_font(&mut self, font: u16) -> u16 {
-        // Currently, we don't support alternative fonts. Implemented as though font 1 is always selected.
+        // We support fonts 1 and 4, since 4 is yet another way to get a fixed-pitch font.
         match font {
-            0 => 1, // If the font ID requested is 0, the font is not changed, and the ID of the current font is returned.
-            1 => 1, // If the requested font is available, then it is chosen for the current window, and the store value is the font ID of the previous font.
-            _ => 0, // If the font is unavailable, nothing will happen and the store value is 0.
+            // If the font ID requested is 0, the font is not changed, and the ID of the current font is returned.
+            0 => self.current_font,
+            // If the requested font is available, then it is chosen for the current window,
+            // and the store value is the font ID of the previous font.
+            1 | 4 => {
+                let previous = self.current_font;
+                self.current_font = font;
+                previous
+            }
+            // If the font is unavailable, nothing will happen and the store value is 0.
+            _ => 0,
         }
     }
 

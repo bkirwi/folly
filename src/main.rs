@@ -6,7 +6,7 @@ extern crate lazy_static;
 
 use std::borrow::Borrow;
 
-use std::{fs, io, mem, thread};
+use std::{fs, io, mem, slice, thread};
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -531,6 +531,10 @@ struct Session {
     save_root: PathBuf,
 }
 
+fn blank(line: &[BaseOutput]) -> bool {
+    line.iter().all(|o| o.content.trim().is_empty())
+}
+
 impl Session {
     pub fn restore(&mut self, path: &Path) -> io::Result<()> {
         let save_data = fs::read(path)?;
@@ -650,10 +654,6 @@ impl Session {
         }
 
         // TODO: reimplement the title paragraph functionality
-
-        fn blank(line: &[BaseOutput]) -> bool {
-            line.iter().all(|o| o.content.trim().is_empty())
-        }
 
         for line in lines {
             if blank(&line) {
@@ -864,7 +864,18 @@ impl Session {
 
         self.pages.replace_header(Header { lines: status });
 
+        let was_cleared = self.zvm.ui.is_cleared();
         let buffer = self.zvm.ui.drain_output();
+        if was_cleared
+            && buffer
+                .iter()
+                .all(|bo| blank(slice::from_ref(bo)) || bo.style.fixed_pitch())
+            && buffer.iter().any(|bo| bo.content.contains(">"))
+        {
+            // Looks line a menu...
+            // TODO: actual menu structure detection!
+            force_keyboard = true;
+        }
         self.pages.push_advance_space();
         self.append_buffer(buffer);
 

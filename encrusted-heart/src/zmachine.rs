@@ -1287,13 +1287,11 @@ impl<ZUI: UI> Zmachine<ZUI> {
             0
         };
 
-        let name = Instruction::name(opcode, self.version);
         let next = read.position() + text_length;
 
         Instruction {
             addr,
             opcode,
-            name,
             operands,
             store,
             branch,
@@ -1432,7 +1430,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
             _ => panic!(
                 "\n\nOpcode not yet implemented: {} ({:?}/{}) @ {:#04x}\n\n",
-                instr.name,
+                Instruction::name(instr.opcode, self.version),
                 instr.opcode,
                 args.len(),
                 self.pc

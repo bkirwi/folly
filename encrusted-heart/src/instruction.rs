@@ -103,7 +103,6 @@ pub struct Branch {
 pub struct Instruction {
     pub addr: usize,
     pub opcode: Opcode,
-    pub name: String,
     pub operands: Vec<Operand>,
     pub store: Option<u8>,
     pub branch: Option<Branch>,
@@ -158,7 +157,7 @@ impl Instruction {
         }
     }
 
-    pub fn name(opcode: Opcode, version: u8) -> String {
+    pub fn name(opcode: Opcode, version: u8) -> &'static str {
         use self::Opcode::*;
 
         match opcode {
@@ -310,7 +309,6 @@ impl Instruction {
             EXT_1028 => "picture_table",
             EXT_1029 => "buffer_screen",
         }
-        .to_string()
     }
 }
 
@@ -370,7 +368,13 @@ impl Eq for Instruction {}
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:5x}: {:16}", self.addr, self.name)?;
+        write!(
+            f,
+            "{:5x}: {:16}",
+            self.addr,
+            // TODO: preserve the version?
+            Instruction::name(self.opcode, 5)
+        )?;
 
         for op in &self.operands {
             write!(f, " {}", op)?;

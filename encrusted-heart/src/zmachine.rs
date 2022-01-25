@@ -1,5 +1,4 @@
 use std::collections::{HashMap, VecDeque};
-use std::env;
 use std::fmt;
 
 use std::str;
@@ -1308,10 +1307,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
         // ~mutably~ gets the arguments (might pop stack)
         let args = self.get_arguments(instr.operands.as_slice());
-
-        if env::var("DEBUG").is_ok() {
-            println!("\x1B[97m{}\x1B[0m", instr);
-        }
 
         // Match instructions that return values for storing or branching (or both)
         // `result` is an option. either a matched instruction or none (no match)

@@ -1,7 +1,4 @@
 #[macro_use]
-extern crate enum_primitive;
-
-#[macro_use]
 extern crate lazy_static;
 
 use std::borrow::Borrow;
@@ -1331,15 +1328,15 @@ fn main() {
             "{} does not exist! Creating and prepopulating it.",
             root_dir.to_string_lossy()
         );
-        fs::create_dir_all(&root_dir)
-            .expect("Unable to (recursively) create the FOLLY_ROOT directory.");
-        let mut tutorial_path = root_dir.clone();
-        tutorial_path.push("Folly Tutorial.z8");
-        fs::write(
-            &tutorial_path,
-            include_bytes!("../Tutorial.inform/Tutorial.z8"),
-        )
-        .expect("Unable to write to newly-created directory.");
+        fs::create_dir_all(&root_dir).expect("(recursively) create the FOLLY_ROOT directory");
+
+        const TUTORIAL: &[u8] = include_bytes!("../games/Folly Tutorial.z8");
+        const BRONZE: &[u8] = include_bytes!("../games/Bronze.z8");
+        for (name, bytes) in [("Folly Tutorial.z8", TUTORIAL), ("Bronze.z8", BRONZE)] {
+            let mut game_path = root_dir.clone();
+            game_path.push(name);
+            fs::write(&game_path, bytes).expect("write game binary to newly-created directory");
+        }
     }
 
     let mut app = armrest::app::App::new();

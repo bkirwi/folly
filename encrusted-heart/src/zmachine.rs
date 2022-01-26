@@ -3,19 +3,18 @@ use std::fmt;
 
 use std::str;
 
-use enum_primitive::FromPrimitive;
 use rand::{Rng, SeedableRng};
 
 use crate::buffer::Buffer;
+use crate::buffer::Reader;
 use crate::frame::Frame;
 use crate::instruction::*;
 use crate::options::Options;
 use crate::quetzal::QuetzalSave;
 use crate::traits::{TextStyle, Window, UI};
 use crate::zscii::{ZChar, DEFAULT_UNICODE_TABLE};
-use buffer::Reader;
 use std::cmp::Ordering;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 
 #[derive(Debug)]
 enum ZStringState {
@@ -1188,11 +1187,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
         let get_opcode = |code: u8, offset: u16| {
             let num = u16::from(code) + offset;
-
-            match Opcode::from_u16(num) {
-                Some(val) => val,
-                None => panic!("Opcode not found: {:?}", num),
-            }
+            Opcode::try_from(num).expect("Opcode not found!")
         };
 
         #[allow(unreachable_patterns)]

@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use num_enum::TryFromPrimitive;
 use std::fmt;
 use std::hash;
@@ -132,7 +133,7 @@ pub enum Opcode {
     EXT_1029 = 1029,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Operand {
     Small(u8),
     Large(u16),
@@ -164,7 +165,7 @@ pub struct Branch {
 pub struct Instruction {
     pub addr: usize,
     pub opcode: Opcode,
-    pub operands: Vec<Operand>,
+    pub operands: ArrayVec<Operand, 8>,
     pub store: Option<u8>,
     pub branch: Option<Branch>,
     pub text: Option<String>,

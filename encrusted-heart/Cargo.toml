@@ -8,6 +8,7 @@ license = "MIT"
 edition = "2021"
 
 [dependencies]
+arrayvec = "0.7.2"
 base64 = "0.10.1"
 num_enum = "0.5.6"
 rand = "0.4.2"

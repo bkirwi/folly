@@ -13,6 +13,7 @@ use crate::options::Options;
 use crate::quetzal::QuetzalSave;
 use crate::traits::{TextStyle, Window, UI};
 use crate::zscii::{ZChar, DEFAULT_UNICODE_TABLE};
+use arrayvec::ArrayVec;
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 
@@ -1123,7 +1124,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
         self.memory.write(0, save.memory.as_slice());
     }
 
-    fn get_arguments(&mut self, operands: &[Operand]) -> Vec<u16> {
+    fn get_arguments(&mut self, operands: &[Operand]) -> ArrayVec<u16, 8> {
         operands
             .iter()
             .map(|operand| match *operand {
@@ -1182,20 +1183,26 @@ impl<ZUI: UI> Zmachine<ZUI> {
         let mut read = self.memory.get_reader(addr);
         let first = read.byte();
 
-        let btm_4 = |num| num & 0b0000_1111;
-        let btm_5 = |num| num & 0b0001_1111;
-
-        let get_opcode = |code: u8, offset: u16| {
+        fn btm_4(num: u8) -> u8 {
+            num & 0b0000_1111
+        }
+        fn btm_5(num: u8) -> u8 {
+            num & 0b0001_1111
+        }
+        fn get_opcode(code: u8, offset: u16) -> Opcode {
             let num = u16::from(code) + offset;
             Opcode::try_from(num).expect("Opcode not found!")
-        };
+        }
+        fn array_vec(slice: &[Operand]) -> ArrayVec<Operand, 8> {
+            slice.into_iter().copied().collect()
+        }
 
         #[allow(unreachable_patterns)]
         let (opcode, operands) = {
             use crate::instruction::Operand::*;
 
-            fn get_types(bytes: &[u8], read: &mut Reader) -> Vec<Operand> {
-                let mut acc = Vec::with_capacity(bytes.len() * 4);
+            fn get_types(bytes: &[u8], read: &mut Reader) -> ArrayVec<Operand, 8> {
+                let mut acc = ArrayVec::new();
                 let mut push_bits = |b: u8| match b {
                     0b00 => acc.push(Large(read.word())),
                     0b01 => acc.push(Small(read.byte())),
@@ -1219,24 +1226,33 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 ),
                 0x00..=0x1f => (
                     get_opcode(btm_5(first), 0),
-                    vec![Small(read.byte()), Small(read.byte())],
+                    array_vec(&[Small(read.byte()), Small(read.byte())]),
                 ),
                 0x20..=0x3f => (
                     get_opcode(btm_5(first), 0),
-                    vec![Small(read.byte()), Variable(read.byte())],
+                    array_vec(&[Small(read.byte()), Variable(read.byte())]),
                 ),
                 0x40..=0x5f => (
                     get_opcode(btm_5(first), 0),
-                    vec![Variable(read.byte()), Small(read.byte())],
+                    array_vec(&[Variable(read.byte()), Small(read.byte())]),
                 ),
                 0x60..=0x7f => (
                     get_opcode(btm_5(first), 0),
-                    vec![Variable(read.byte()), Variable(read.byte())],
+                    array_vec(&[Variable(read.byte()), Variable(read.byte())]),
                 ),
-                0x80..=0x8f => (get_opcode(btm_4(first), 128), vec![Large(read.word())]),
-                0x90..=0x9f => (get_opcode(btm_4(first), 128), vec![Small(read.byte())]),
-                0xa0..=0xaf => (get_opcode(btm_4(first), 128), vec![Variable(read.byte())]),
-                0xb0..=0xbd | 0xbf => (get_opcode(btm_4(first), 176), vec![]), // OP_0
+                0x80..=0x8f => (
+                    get_opcode(btm_4(first), 128),
+                    array_vec(&[Large(read.word())]),
+                ),
+                0x90..=0x9f => (
+                    get_opcode(btm_4(first), 128),
+                    array_vec(&[Small(read.byte())]),
+                ),
+                0xa0..=0xaf => (
+                    get_opcode(btm_4(first), 128),
+                    array_vec(&[Variable(read.byte())]),
+                ),
+                0xb0..=0xbd | 0xbf => (get_opcode(btm_4(first), 176), ArrayVec::new()), // OP_0
                 0xc0..=0xdf => (
                     get_opcode(btm_5(first), 0),
                     get_types(&[read.byte()], &mut read),

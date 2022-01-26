@@ -1444,21 +1444,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
         }
     }
 
-    // Terminal UI only
-    #[allow(dead_code)]
-    pub fn run(&mut self) {
-        // continue instructions until the quit instruction
-        loop {
-            let instr = self.decode_instruction(self.pc);
-
-            if instr.opcode == Opcode::OP0_186 {
-                break;
-            }
-
-            self.handle_instruction(&instr);
-        }
-    }
-
     // Web UI only
     #[allow(dead_code)]
     pub fn step(&mut self) -> Step {

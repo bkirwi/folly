@@ -13,6 +13,7 @@ use crate::options::Options;
 use crate::quetzal::QuetzalSave;
 use crate::traits::{TextStyle, Window, UI};
 use crate::zscii::{ZChar, DEFAULT_UNICODE_TABLE};
+use buffer::Reader;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 
@@ -1184,7 +1185,6 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
         let btm_4 = |num| num & 0b0000_1111;
         let btm_5 = |num| num & 0b0001_1111;
-        let get_types = |bytes: &[u8]| OperandType::from(bytes);
 
         let get_opcode = |code: u8, offset: u16| {
             let num = u16::from(code) + offset;
@@ -1195,41 +1195,69 @@ impl<ZUI: UI> Zmachine<ZUI> {
             }
         };
 
-        use crate::instruction::OperandType::*;
-
         #[allow(unreachable_patterns)]
-        let (opcode, optypes) = match first {
-            0xbe => (get_opcode(read.byte(), 1000), get_types(&[read.byte()])),
-            0x00..=0x1f => (get_opcode(btm_5(first), 0), vec![Small, Small]),
-            0x20..=0x3f => (get_opcode(btm_5(first), 0), vec![Small, Variable]),
-            0x40..=0x5f => (get_opcode(btm_5(first), 0), vec![Variable, Small]),
-            0x60..=0x7f => (get_opcode(btm_5(first), 0), vec![Variable, Variable]),
-            0x80..=0x8f => (get_opcode(btm_4(first), 128), vec![Large]),
-            0x90..=0x9f => (get_opcode(btm_4(first), 128), vec![Small]),
-            0xa0..=0xaf => (get_opcode(btm_4(first), 128), vec![Variable]),
-            0xb0..=0xbd | 0xbf => (get_opcode(btm_4(first), 176), vec![]), // OP_0
-            0xc0..=0xdf => (get_opcode(btm_5(first), 0), get_types(&[read.byte()])),
-            0xe0..=0xff => {
-                let opcode = get_opcode(btm_5(first), 224);
+        let (opcode, operands) = {
+            use crate::instruction::Operand::*;
 
-                if opcode == Opcode::VAR_236 || opcode == Opcode::VAR_250 {
-                    (opcode, get_types(&[read.byte(), read.byte()]))
-                } else {
-                    (opcode, get_types(&[read.byte()]))
+            fn get_types(bytes: &[u8], read: &mut Reader) -> Vec<Operand> {
+                let mut acc = Vec::with_capacity(bytes.len() * 4);
+                let mut push_bits = |b: u8| match b {
+                    0b00 => acc.push(Large(read.word())),
+                    0b01 => acc.push(Small(read.byte())),
+                    0b10 => acc.push(Variable(read.byte())),
+                    _ => {}
+                };
+
+                for n in bytes {
+                    push_bits((n & 0b1100_0000) >> 6);
+                    push_bits((n & 0b0011_0000) >> 4);
+                    push_bits((n & 0b0000_1100) >> 2);
+                    push_bits(n & 0b0000_0011);
                 }
+                acc
             }
-            _ => unreachable!(),
-        };
 
-        let operands = optypes
-            .iter()
-            .map(|optype| match *optype {
-                OperandType::Small => Operand::Small(read.byte()),
-                OperandType::Large => Operand::Large(read.word()),
-                OperandType::Variable => Operand::Variable(read.byte()),
-                OperandType::Omitted => unreachable!(),
-            })
-            .collect();
+            match first {
+                0xbe => (
+                    get_opcode(read.byte(), 1000),
+                    get_types(&[read.byte()], &mut read),
+                ),
+                0x00..=0x1f => (
+                    get_opcode(btm_5(first), 0),
+                    vec![Small(read.byte()), Small(read.byte())],
+                ),
+                0x20..=0x3f => (
+                    get_opcode(btm_5(first), 0),
+                    vec![Small(read.byte()), Variable(read.byte())],
+                ),
+                0x40..=0x5f => (
+                    get_opcode(btm_5(first), 0),
+                    vec![Variable(read.byte()), Small(read.byte())],
+                ),
+                0x60..=0x7f => (
+                    get_opcode(btm_5(first), 0),
+                    vec![Variable(read.byte()), Variable(read.byte())],
+                ),
+                0x80..=0x8f => (get_opcode(btm_4(first), 128), vec![Large(read.word())]),
+                0x90..=0x9f => (get_opcode(btm_4(first), 128), vec![Small(read.byte())]),
+                0xa0..=0xaf => (get_opcode(btm_4(first), 128), vec![Variable(read.byte())]),
+                0xb0..=0xbd | 0xbf => (get_opcode(btm_4(first), 176), vec![]), // OP_0
+                0xc0..=0xdf => (
+                    get_opcode(btm_5(first), 0),
+                    get_types(&[read.byte()], &mut read),
+                ),
+                0xe0..=0xff => {
+                    let opcode = get_opcode(btm_5(first), 224);
+
+                    if opcode == Opcode::VAR_236 || opcode == Opcode::VAR_250 {
+                        (opcode, get_types(&[read.byte(), read.byte()], &mut read))
+                    } else {
+                        (opcode, get_types(&[read.byte()], &mut read))
+                    }
+                }
+                _ => unreachable!(),
+            }
+        };
 
         let store = if Instruction::does_store(opcode, self.version) {
             Some(read.byte())

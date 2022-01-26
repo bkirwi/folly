@@ -39,38 +39,6 @@ enum_from_primitive! {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum OperandType {
-    Small,
-    Large,
-    Variable,
-    Omitted,
-}
-
-impl OperandType {
-    pub fn from(bytes: &[u8]) -> Vec<OperandType> {
-        bytes
-            .iter()
-            .fold(Vec::new(), |mut acc, n| {
-                acc.push((n & 0b1100_0000) >> 6);
-                acc.push((n & 0b0011_0000) >> 4);
-                acc.push((n & 0b0000_1100) >> 2);
-                acc.push(n & 0b0000_0011);
-                acc
-            })
-            .into_iter()
-            .map(|b| match b {
-                0b00 => OperandType::Large,
-                0b01 => OperandType::Small,
-                0b10 => OperandType::Variable,
-                0b11 => OperandType::Omitted,
-                _ => unreachable!("Can't get operand type of: {:08b}", b),
-            })
-            .take_while(|t| *t != OperandType::Omitted)
-            .collect()
-    }
-}
-
 #[derive(Debug)]
 pub enum Operand {
     Small(u8),

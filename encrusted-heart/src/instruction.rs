@@ -1,7 +1,6 @@
 use arrayvec::ArrayVec;
 use num_enum::TryFromPrimitive;
 use std::fmt;
-use std::hash;
 
 #[allow(non_camel_case_types)]
 #[repr(u16)]
@@ -409,24 +408,6 @@ impl Instruction {
         }
     }
 }
-
-impl hash::Hash for Instruction {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: hash::Hasher,
-    {
-        state.write_usize(self.addr);
-        state.finish();
-    }
-}
-
-impl PartialEq for Instruction {
-    fn eq(&self, other: &Instruction) -> bool {
-        self.addr == other.addr
-    }
-}
-
-impl Eq for Instruction {}
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

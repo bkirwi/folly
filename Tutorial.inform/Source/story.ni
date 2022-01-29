@@ -23,11 +23,11 @@ When play begins:
 
 Table of Things to Do
 Status	Introduction	Instruction	Congratulation	Explained
-"Command Input"	"Interactive fiction is a dialogue; the player gives the game short, imperative commands, and the game replies with text describing what happens next. In Folly, you give your commands by handwriting them on a line next to a prompt (the > in the left margin) like you see below. The game will respond within a second or so once you've lifted your pen away from the screen.[paragraph break]Folly understands most people's handwriting fairly well, but it's not perfect; make sure you print your instructions clearly in lowercase. (If you're really having trouble, tap the little keyboard icon next to the prompt to bring up an onscreen keyboard.) Let's start by examining that mysterious sign..."	"Write 'examine sign' on the input line below."	"Nice work! You'll notice that your handwriting is still visible above; if you ever get turned around, it can help to flip back a page or two and reread your commands and how the game responsed."		false
+"Command Input"	"In Folly, you give the game commands by handwriting them next to a '>' prompt, on a line like the one at the end of the text below. The game will respond within a second or so once you've lifted your pen away from the screen.[paragraph break]Folly understands most people's handwriting fairly well, but it's not perfect; make sure you print your instructions clearly in lowercase. (If you're really having trouble, tap the little keyboard icon next to the prompt to bring up an onscreen keyboard.) Let's start by examining that mysterious sign..."	"Write 'examine sign' on the input line below."	"Nice work! You'll notice that the prompt and your handwriting is still visible above, but the input line is gone. You can't go back and change your old commands, but it can be useful to go back and reread them to remind yourself of what you've already tried."		false
 "Menus and Help"	"Many interactive fiction games contain a help menu. Menus are currently a bit awkward in Folly, since they were designed for keyboard navigation; you'll need to use an onscreen keyboard for them. This game's help menu holds general tips for playing IF; you won't need them for this tutorial, but they're useful to know for other games."	"Write 'help' at the prompt, then use the onscreen keyboard to navigate the help menu."	"Congratulations... you've survived a menu! If you ever want to revisit the help information, just write 'help' at the prompt again."	false
 "Saving"	"Along with in-game commands like 'get' and 'look', interactive fictions also support meta-commands like 'save', 'restore', and 'quit'. You run these commands just like any other: by writing them next to the prompt. Folly has special support for saving and restoring the game, so let's try those out first."	"Write 'save' at the prompt below."	"Game saved! Folly records the contents of the status line along with the save, to help recognize it later on."	false
 "Restoring"	"We've saved the game, so let's try restoring it."	"Write 'restore' at the prompt below, then select the game you saved earlier from the list."	"Game restored!"	false
-"Quitting"	"The last important meta-command is 'quit', which exits the game and dumps you back to the main menu. If you want to switch games, that's how to do it... but make sure to save first!"	"Write 'quit' at the prompt below."	"That's it! If you're an experienced interactive fiction player, you've learned everything you need to know. If you're still learning, you may want to try a game like Emily Short's [bold type]Bronze[roman type][italic type] to learn more of the usual commands and how the world works."	false
+"Quitting"	"The last important meta-command is 'quit', which exits the game and dumps you back to the main menu... useful if you'd like to play another game instead."	"Write 'quit' at the prompt below."	"That's it! If you're an experienced interactive fiction player, you've learned everything you need to know. If you're still learning, you may want to try a game like Emily Short's [bold type]Bronze[roman type][italic type] to learn more of the usual commands and how the world works."	false
 
 
 N is a number that varies. N is 1.
@@ -38,7 +38,7 @@ Before reading a command:
 	now the right hand status line is "[Status entry]";
 	If Explained entry is false, say "[italic type][Introduction entry][roman type][paragraph break]";
 	Now Explained entry is true;
-	Say "[italic type][Instruction entry][roman type]".
+	Say "[italic type][Instruction entry][roman type]".	
 	
 To say status-entry:
 	choose row N in the Table of Things to Do;
@@ -73,11 +73,6 @@ The neon sign is here. "Well, not entirely featureless... a neon sign lies just 
 
 Instead of going a direction (called way):
 	say "You walk [way] for a bit, but seem to end up right where you started."
-
-The doorway is nowhere. "You can barely make out a slight contrast in the space around you; a narrow doorway, just ahead." It is an open, enterable container. It is fixed in place. The description is "The space beyond is the same colour as the void around you; if it weren't for the lamplight, you wouldn't have seen it."
-
-Instead of entering the doorway:
-	say "You're not ready to leave just yet."
 
 After examining the sign for the first time:
 	Advance the tutorial;

@@ -1036,16 +1036,13 @@ impl Game {
         let game_vec =
             Game::list_games(root_dir).expect(&format!("Unable to list games in {:?}", root_dir));
 
-        let welcome_message: String = if game_vec.is_empty() {
-            format!(
-                "It looks like you haven't added any games yet... add a Zcode file to {} and restart the app.",
-                root_dir.to_string_lossy(),
-            )
+        let welcome_message = if game_vec.is_empty() {
+            "No games found!"
         } else {
-            "Choose a game from the list to get started.".to_string()
+            "Choose a game from the list to get started."
         };
 
-        for widget in Text::wrap(LINE_HEIGHT, &*ROMAN, &welcome_message, LINE_LENGTH, true) {
+        for widget in Text::wrap(LINE_HEIGHT, &*ROMAN, welcome_message, LINE_LENGTH, true) {
             games.push_element(Element::Line(false, widget));
         }
         games.push_advance_space();
@@ -1071,6 +1068,15 @@ impl Game {
                 Some(Msg::LoadGame(path)),
             ));
         }
+
+        let suggest = format!(
+            "To load more games, copy a .z3, .z5, or .z8 file to {} and restart the app.",
+            root_dir.to_string_lossy(),
+        );
+        for widget in Text::wrap(LINE_HEIGHT, &*ROMAN, &suggest, LINE_LENGTH, true) {
+            games.push_element(Element::Line(false, widget));
+        }
+
         games
     }
 

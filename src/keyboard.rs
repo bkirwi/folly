@@ -57,7 +57,7 @@ impl Keyboard {
 
         fn letter(ch: char) -> [char; 2] {
             [ch, ch.to_ascii_uppercase()]
-        };
+        }
 
         let keys = vec![
             vec![
@@ -91,7 +91,7 @@ impl Keyboard {
                     width: 90,
                     align: 0.0,
                     special: true,
-                    chars: vec![(label("Tab"), KeyPress::ZChar(ZChar('\t' as u8)))],
+                    chars: vec![(label("Tab"), KeyPress::ZChar(ZChar(b'\t')))],
                 },
                 key(&letter('q')),
                 key(&letter('w')),
@@ -173,7 +173,7 @@ impl Keyboard {
                     width: 540,
                     special: true,
                     align: 0.5,
-                    chars: vec![(label("Space"), KeyPress::ZChar(ZChar(' ' as u8)))],
+                    chars: vec![(label("Space"), KeyPress::ZChar(ZChar(b' ')))],
                 },
                 Key {
                     width: 90,
@@ -228,7 +228,7 @@ impl Widget for Keyboard {
                 let mut key_frame = row_frame.split_off(Side::Left, key.width);
                 let shift = if key.special { 0 } else { self.shift };
                 if let Some((label, press)) = key.chars.get(shift) {
-                    key_frame.handlers().on_tap(press.clone());
+                    key_frame.handlers().on_tap(*press);
 
                     label
                         .borrow()

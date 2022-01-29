@@ -45,12 +45,10 @@ To match the x-height of garamond, we want about 75% the size.
 If we choose 64 that gives us a line length of 1006, which is reasonable
  */
 const LEFT_MARGIN: i32 = 200;
-const TOP_MARGIN: i32 = 150;
 const LINE_HEIGHT: i32 = 44;
 const MONOSPACE_LINE_HEIGHT: i32 = 33;
-const HEADER_SCALE: f32 = 0.9;
 const LINE_LENGTH: i32 = 1006;
-const TEXT_AREA_HEIGHT: i32 = 1408; // 34 * LINE_HEIGHT
+const TEXT_AREA_HEIGHT: i32 = 32 * LINE_HEIGHT;
 const CHARS_PER_LINE: usize = 64;
 
 const SECTION_BREAK: &str = ">   >   >";
@@ -70,7 +68,7 @@ lazy_static! {
     static ref PROMPT_ICON: Image = Image::new(
         image::load_from_memory_with_format(include_bytes!("chevron.png"), image::ImageFormat::Png)
             .unwrap()
-            .to_rgb()
+            .to_rgb8()
     );
     static ref KEYBOARD_ICON: Image = Image::new(
         image::load_from_memory_with_format(
@@ -78,24 +76,23 @@ lazy_static! {
             image::ImageFormat::Png
         )
         .unwrap()
-        .to_rgb()
+        .to_rgb8()
     );
     static ref GAME_ICON: Image = Image::new(
         image::load_from_memory_with_format(include_bytes!("book.png"), image::ImageFormat::Png)
             .unwrap()
-            .to_rgb()
+            .to_rgb8()
     );
     static ref SAVE_ICON: Image = Image::new(
         image::load_from_memory_with_format(include_bytes!("restore.png"), image::ImageFormat::Png)
             .unwrap()
-            .to_rgb()
+            .to_rgb8()
     );
 }
 
 #[derive(Clone, Debug)]
 enum Msg {
     Input(Ink),
-    Submit,
     ToggleKeyboard,
     PageRelative(isize),
     RecognizedText(usize, String),
@@ -350,10 +347,6 @@ impl Pages {
         }
     }
 
-    pub fn current_mut(&mut self) -> &mut Page {
-        &mut self.contents[self.page_number]
-    }
-
     pub fn last(&self) -> &Page {
         self.contents.last().expect("Never empty!")
     }
@@ -382,10 +375,9 @@ impl Pages {
         let space_remaining = self.remaining();
         if padding > space_remaining.y {
             let Page { header, body } = self.contents.last().unwrap();
-            self.contents.push(Page {
-                header: header.clone(),
-                body: Stack::new(body.size()),
-            });
+            let header = header.clone();
+            let body = Stack::new(body.size());
+            self.contents.push(Page { header, body });
         }
     }
 
@@ -533,11 +525,10 @@ fn blank(line: &[BaseOutput]) -> bool {
 }
 
 impl Session {
-    pub fn restore(&mut self, path: &Path) -> io::Result<()> {
-        let save_data = fs::read(path)?;
+    pub fn restore(&mut self, path: &Path) {
+        let save_data = fs::read(path).expect("reading save data from path");
         eprintln!("Restoring from save at {}", path.display());
         self.zvm.restore(&save_data);
-        Ok(())
     }
 
     fn load_saves(&self) -> io::Result<Vec<PathBuf>> {
@@ -1143,29 +1134,6 @@ impl Applet for Game {
                         self.ink_tx
                             .send((merged, session.dict.clone(), self.awaiting_ink))
                             .unwrap();
-                    }
-                }
-            }
-            Msg::Submit => {
-                if let GameState::Playing { session } = &mut self.state {
-                    // TODO: should this submit the string contents also?
-                    if let Some(Element::Input {
-                        active: _,
-                        contents: UserInput::Ink(existing_ink),
-                    }) = &mut session.pages.last_mut().body.last_mut()
-                    {
-                        if existing_ink.len() == 0 {
-                            // submit the blank ink!
-                            self.awaiting_ink += 1;
-
-                            let mut merged = Ink::new();
-                            for i in existing_ink {
-                                merged.append(i.clone(), 0.5);
-                            }
-                            self.ink_tx
-                                .send((merged, session.dict.clone(), self.awaiting_ink))
-                                .unwrap();
-                        }
                     }
                 }
             }

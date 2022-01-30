@@ -27,8 +27,10 @@ lazy_static = "1.2.0"
 regex = "1.1.0"
 itertools = "0.10.1"
 termion = "1.5.6"
-armrest = { git = "https://github.com/bkirwi/armrest", rev = "dfa736049bd0468330c1834f1cad7da014fcb11a" }
-libremarkable = { git = "https://github.com/canselcik/libremarkable", rev = "76d19c7cbd186ab44e8026604a7bf94c26d7bfed", default-features = false, features = ['framebuffer'] }
+armrest = { git = "https://github.com/bkirwi/armrest", rev = "c6cd6654ef5bfdcc355bf7ca0d1a65228efe1cf8" }
+#armrest = { path = "../armrest" }
+libremarkable = { git = "https://github.com/canselcik/libremarkable", rev = "31c4ac7326f2f714fc1fe1499b0f4c8d11c35c3e", default-features = false, features = ['framebuffer'] }
+#libremarkable = { path = "../libremarkable", default-features = false, features = ['framebuffer'] }
 rusttype = "0.8.2"
 chrono = "0.4.19"
 image = "0.23.14"

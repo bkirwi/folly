@@ -59,7 +59,7 @@ dependencies = [
 [[package]]
 name = "armrest"
 version = "0.1.0"
-source = "git+https://github.com/bkirwi/armrest?rev=dfa736049bd0468330c1834f1cad7da014fcb11a#dfa736049bd0468330c1834f1cad7da014fcb11a"
+source = "git+https://github.com/bkirwi/armrest?rev=c6cd6654ef5bfdcc355bf7ca0d1a65228efe1cf8#c6cd6654ef5bfdcc355bf7ca0d1a65228efe1cf8"
 dependencies = [
  "flo_curves",
  "hyphenation",
@@ -705,7 +705,7 @@ dependencies = [
 [[package]]
 name = "libremarkable"
 version = "0.5.0"
-source = "git+https://github.com/canselcik/libremarkable?rev=76d19c7cbd186ab44e8026604a7bf94c26d7bfed#76d19c7cbd186ab44e8026604a7bf94c26d7bfed"
+source = "git+https://github.com/canselcik/libremarkable?rev=31c4ac7326f2f714fc1fe1499b0f4c8d11c35c3e#31c4ac7326f2f714fc1fe1499b0f4c8d11c35c3e"
 dependencies = [
  "atomic",
  "cgmath",

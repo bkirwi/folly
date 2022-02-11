@@ -1300,8 +1300,9 @@ impl Applet for Game {
 }
 
 fn main() {
-    let root_dir =
-        PathBuf::from(std::env::var("FOLLY_ROOT").unwrap_or("/home/root/folly".to_string()));
+    let root_dir = PathBuf::from(
+        std::env::var("FOLLY_ROOT").unwrap_or("/home/root/.local/share/folly".to_string()),
+    );
 
     if !root_dir.exists() {
         eprintln!(

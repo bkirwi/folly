@@ -83,7 +83,7 @@ is a nice short game to try them out on.
 
 The `FOLLY_ROOT` environment variable sets the directory
 where _Folly_ will look for game files, store saved games, and keep logs.
-It defaults to `/home/root/folly`.
+It defaults to `/home/root/.local/share/folly`.
 (Make sure you don't put the binary at that path!
 I suggest `/home/root/bin/folly` instead.)
 

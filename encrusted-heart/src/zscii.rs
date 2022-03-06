@@ -26,7 +26,9 @@ impl ZChar {
     pub fn from_char(ch: char, table: &[char]) -> Option<ZChar> {
         let code: u32 = ch.into();
         match code {
-            0 | 8 | 9 | 11 | 13 | 27 | 32..=126 => Some(ZChar(code as u8)),
+            0 | 8 | 9 | 27 | 32..=126 => Some(ZChar(code as u8)),
+            10 | 13 => Some(ZChar::RETURN),
+            11 => Some(ZChar(b' ')),
             _ => table
                 .iter()
                 .position(|c| *c == ch)

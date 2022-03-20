@@ -1061,7 +1061,7 @@ impl Game {
         }
 
         let more_games = Text::builder(LINE_HEIGHT, &*ROMAN)
-            .words("To load more games, copy a .z3, .z5, or .z8 file to ")
+            .words("To load more games, copy a .z3, .z4, .z5, or .z8 file to ")
             .font(&*MONOSPACE)
             .scale(MONOSPACE_LINE_HEIGHT as f32)
             .literal(&root_dir.to_string_lossy())
@@ -1070,7 +1070,7 @@ impl Game {
             .words(" and restart the app.");
 
         games.push_advance_space();
-        for widget in more_games.wrap(LINE_LENGTH, true) {
+        for widget in more_games.wrap(LINE_LENGTH, false) {
             games.push_element(Element::Line(false, widget));
         }
 

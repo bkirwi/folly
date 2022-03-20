@@ -448,7 +448,7 @@ impl<ZUI> Zmachine<ZUI> {
                     (6, &Alphabet(2)) => Tenbit1,
                     (_, &Tenbit1) => Tenbit2(zchar),
                     (_, &Tenbit2(first)) => {
-                        let letter = ((first << 5) + zchar) as char;
+                        let letter = ZChar((first << 5) + zchar).to_char(self.unicode_table());
                         zstring.push_str(&letter.to_string());
                         Alphabet(0)
                     }
@@ -2069,12 +2069,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     // VAR_229
     fn do_print_char(&mut self, chr: u16) {
-        let code = chr as u8;
-        let ch = if (155..=223).contains(&code) {
-            DEFAULT_UNICODE_TABLE[(code - 155) as usize]
-        } else {
-            code as char
-        };
+        let ch = ZChar(chr as u8).to_char(self.unicode_table());
         self.print(&ch.to_string());
     }
 

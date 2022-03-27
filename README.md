@@ -39,7 +39,7 @@ and you may need to repeat an input to get Folly to understand it.
 Some advice on getting the best results:
 - Make sure you know [the standard IF commands](http://pr-if.org/doc/play-if-card/play-if-card.html)!
   (The handwriting recognition is tuned to recognize the words your game actually uses.)
-- **Write in lowercase**: no capital letters.
+- Write in lowercase: no capital letters.
 - Printing is more reliably recognized than cursive.
 - If you can't get the game to recognize a word, try a synonym.
 
@@ -62,24 +62,27 @@ and adding the `ink.log` file from your device as an attachment.
 
 # Running on reMarkable
 
-**This section assumes you've set up custom software on your reMarkable before.
-If not, you'll want to check out community projects like [Toltec](https://toltec-dev.org/)
-to get set up. (And don't forget to write down your password!)**
-
-First, you'll need a copy of the binary.
-You can either build it from scratch (see instructions below)
-or grab a prebuilt binary from the [releases page](https://github.com/bkirwi/encrusted/releases).
+Folly is available through [Toltec](https://toltec-dev.org/),
+a community-managed package repository.
+This is by far the simplest way to install Folly on your device.
+See the Toltec documentation for instructions
+on how to get set up and ready to install packages.
+(And don't forget to write down your password!)
 
 You'll also need a game to play.
 You can find freely available games [on the IFDB](https://ifdb.org/search?searchfor=format%3AZ*&searchgo=Search+Games).
 Any game with a `.z3`, `.z4`, `.z5`, or `z8` extension is expected to work.
+By default, the app will look for game files under `/home/root/.local/share/folly`.
+[Emily Short's Bronze](https://ifdb.org/viewgame?id=9p8kh3im2j9h2881) is packaged with the app,
+as well as a short tutorial intended to help you get used to playing games on your tablet.
 
-If you haven't played an interactive fiction game before,
-you might want to get the hang of it on a keyboard first.
-This [cheat sheet](http://pr-if.org/doc/play-if-card/play-if-card.html)
-covers the basic commands,
-and [9:05](http://adamcadre.ac/if/905.html)
-is a nice short game to try them out on.
+## Manual setup
+
+While installing via Toltec is recommended,
+it's also possible to install Folly manually.
+First, you'll need a copy of the binary.
+You can either build it from scratch (see instructions below)
+or grab a prebuilt binary from the [releases page](https://github.com/bkirwi/encrusted/releases).
 
 The `FOLLY_ROOT` environment variable sets the directory
 where _Folly_ will look for game files, store saved games, and keep logs.
@@ -106,5 +109,5 @@ and have a recent reMarkable toolchain installed somewhere.
 The usual cargo commands work;
 to build for the reMarkable, run `../armrest/build-rm.sh`.
 
-### License
+# License
 MIT

@@ -62,7 +62,7 @@ and adding the `ink.log` file from your device as an attachment.
 
 # Running on reMarkable
 
-Folly is available through [Toltec](https://toltec-dev.org/),
+Folly is available as the `folly` package in [Toltec](https://toltec-dev.org/),
 a community-managed package repository.
 This is by far the simplest way to install Folly on your device.
 See the Toltec documentation for instructions

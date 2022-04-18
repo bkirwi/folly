@@ -59,8 +59,9 @@ dependencies = [
 [[package]]
 name = "armrest"
 version = "0.1.0"
-source = "git+https://github.com/bkirwi/armrest?rev=fe5849180d6e4fa3893286694ae2d26eb22cc70c#fe5849180d6e4fa3893286694ae2d26eb22cc70c"
+source = "git+https://github.com/bkirwi/armrest?rev=f814e695ce39756f9a65ef88b332910f92544a3e#f814e695ce39756f9a65ef88b332910f92544a3e"
 dependencies = [
+ "cgmath",
  "flo_curves",
  "hyphenation",
  "image",
@@ -69,6 +70,7 @@ dependencies = [
  "lyon_geom",
  "partial_sort",
  "rusttype 0.8.3",
+ "serde",
  "strsim 0.10.0",
  "textwrap 0.13.4",
  "tflite",
@@ -705,7 +707,7 @@ dependencies = [
 [[package]]
 name = "libremarkable"
 version = "0.6.0"
-source = "git+https://github.com/canselcik/libremarkable?rev=c05517752bc89e82d19d7b81c44c29a149d3b1d3#c05517752bc89e82d19d7b81c44c29a149d3b1d3"
+source = "git+https://github.com/canselcik/libremarkable?rev=573d4ac192af1ec3eaa987d3a5819930f25b7a3d#573d4ac192af1ec3eaa987d3a5819930f25b7a3d"
 dependencies = [
  "atomic",
  "cgmath",
@@ -1260,7 +1262,7 @@ dependencies = [
 [[package]]
 name = "tflite"
 version = "0.9.4"
-source = "git+https://github.com/bkirwi/tflite-rs?rev=7d5a0d8a51378313dbe017c32299a51e002c06b5#7d5a0d8a51378313dbe017c32299a51e002c06b5"
+source = "git+https://github.com/bkirwi/tflite-rs?rev=4212a1bf33ebbcbf535b162cc591d46c7d054d92#4212a1bf33ebbcbf535b162cc591d46c7d054d92"
 dependencies = [
  "bindgen",
  "cpp",

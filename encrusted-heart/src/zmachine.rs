@@ -1389,6 +1389,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (EXT_1003, &[num, places]) => Some(self.do_art_shift(num, places)),
             (EXT_1004, &[font]) => Some(self.do_set_font(font)),
             (EXT_1009, &[]) => Some(self.do_save_undo(instr)),
+            // TODO: we have no way of querying for supported unicode. Add to the UI struct?
+            (EXT_1012, _) => Some(0b0011),
             _ => None,
         };
 
@@ -1406,9 +1408,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (OP2_12, &[obj, attr]) => self.do_clear_attr(obj, attr),
             (OP2_13, &[var, value]) => self.do_store(var, value),
             (OP2_14, &[obj, dest]) => self.do_insert_obj(obj, dest),
-            (OP2_25, &[addr, arg]) => self.do_call(instr, addr, &[arg]), // call_2s
-            (OP2_26, &[addr, arg]) => self.do_call(instr, addr, &[arg]), // call_2n
-            (OP2_27, _) => {}                                            // set_colour... ignored!
+            // NB: apparently dialog emits calls with >2 arguments to these; just handle it.
+            (OP2_25, &[addr, ref rest @ ..]) => self.do_call(instr, addr, rest), // call_2s
+            (OP2_26, &[addr, ref rest @ ..]) => self.do_call(instr, addr, rest), // call_2n
+            (OP2_27, _) => {} // set_colour... ignored!
             (OP2_28, &[value, frame]) => self.do_throw(value, frame),
             (OP1_133, &[var]) => self.do_inc(var),
             (OP1_134, &[var]) => self.do_dec(var),

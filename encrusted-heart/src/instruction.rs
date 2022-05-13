@@ -181,7 +181,7 @@ impl Instruction {
             | OP2_22 | OP2_23 | OP2_24 | OP2_25 | OP1_129 | OP1_130 | OP1_131 | OP1_132
             | OP1_136 | OP1_142 | VAR_224 | VAR_231 | VAR_236 | VAR_246 | VAR_247 | VAR_248
             | EXT_1000 | EXT_1001 | EXT_1002 | EXT_1003 | EXT_1004 | EXT_1009 | EXT_1010
-            | EXT_1019 | EXT_1029 => true,
+            | EXT_1012 | EXT_1019 | EXT_1029 => true,
             // only stores in certain versions
             OP1_143 => version < 5,
             OP0_181 => version == 4, // missing * in spec?

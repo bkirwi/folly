@@ -1348,7 +1348,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
         // Match instructions that return values for storing or branching (or both)
         // `result` is an option. either a matched instruction or none (no match)
         let result = match (instr.opcode, &args[..]) {
-            (OP2_1, _) if !args.is_empty() => Some(self.do_je(args[0], &args[1..])),
+            (OP2_1, &[a, ref values @ ..]) => Some(self.do_je(a, values)),
             (OP2_2, &[a, b]) => Some(self.do_jl(a, b)),
             (OP2_3, &[a, b]) => Some(self.do_jg(a, b)),
             (OP2_4, &[var, value]) => Some(self.do_dec_chk(var, value)),
@@ -1435,7 +1435,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (OP0_185, _) if self.version < 5 => self.do_pop(),
             (OP0_187, _) => self.do_newline(),
             (OP0_188, _) => self.do_show_status(),
-            (VAR_224, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call
+            (VAR_224, &[addr, ref rest @ ..]) => self.do_call(instr, addr, rest), // call_2s
             (VAR_225, &[array, index, value]) => self.do_storew(array, index, value),
             (VAR_226, &[array, index, value]) => self.do_storeb(array, index, value),
             (VAR_227, &[obj, prop, value]) => self.do_put_prop(obj, prop, value),
@@ -1448,7 +1448,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
             }
             (VAR_234, &[lines]) => self.do_split_window(lines),
             (VAR_235, &[window]) => self.do_set_window(window),
-            (VAR_236, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vs2
+            (VAR_236, &[addr, ref rest @ ..]) => self.do_call(instr, addr, rest), // call_2s
             (VAR_237, &[window]) => self.do_erase_window(window),
             // (VAR_238, _) => self.do_erase_line(), TODO
             // It's not clear from the spec what to do with a single operand here,
@@ -1457,15 +1457,15 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_239, &[line, column]) => self.do_set_cursor(line, column),
             (VAR_241, &[style]) => self.do_set_text_style(style),
             (VAR_242, _) => (), // set buffering, but does it matter in this day and age?
-            (VAR_243, &[number, ..]) => self.do_output_stream(number, &args[1..]),
+            (VAR_243, &[number, ref rest @ ..]) => self.do_output_stream(number, rest),
             (VAR_244, &[number]) => self.do_input_stream(number),
             (VAR_245, _) => (), // sound effects not supported!
-            (VAR_249, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn
-            (VAR_250, _) if !args.is_empty() => self.do_call(instr, args[0], &args[1..]), // call_vn2
+            (VAR_249, &[addr, ref rest @ ..]) => self.do_call(instr, addr, rest), // call_vn
+            (VAR_250, &[addr, ref rest @ ..]) => self.do_call(instr, addr, rest), // call_vn2
             (VAR_251, &[text_addr, parse_addr]) => self.do_tokenise(text_addr, parse_addr),
             (VAR_253, &[first, second, size]) => self.do_copy_table(first, second, size),
-            (VAR_254, _) => {
-                self.do_print_table(args[0], args[1], args.get(2).copied(), args.get(3).copied())
+            (VAR_254, &[zstring, width, ..]) => {
+                self.do_print_table(zstring, width, args.get(2).copied(), args.get(3).copied())
             }
             (EXT_1010, &[]) => self.do_restore_undo(),
             (EXT_1011, &[code_point]) => self.do_print_unicode(code_point),

@@ -387,7 +387,7 @@ impl Pages {
     }
 
     fn push_advance_space(&mut self) {
-        let height = LINE_HEIGHT.min(self.remaining().y);
+        let height = self.remaining().y.clamp(0, LINE_HEIGHT);
         let pad_previous_element = match self.contents.last().unwrap().body.last() {
             Some(Element::Line(..)) => true,
             Some(Element::File { .. }) => true,

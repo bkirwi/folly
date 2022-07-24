@@ -1450,11 +1450,12 @@ impl<ZUI: UI> Zmachine<ZUI> {
             (VAR_235, &[window]) => self.do_set_window(window),
             (VAR_236, &[addr, ref rest @ ..]) => self.do_call(instr, addr, rest), // call_2s
             (VAR_237, &[window]) => self.do_erase_window(window),
-            // (VAR_238, _) => self.do_erase_line(), TODO
+            (VAR_238, _) => (), // TODO self.do_erase_line(),
             // It's not clear from the spec what to do with a single operand here,
             // but eg. anchorhead seems to use this with just a line number.
             (VAR_239, &[line]) => self.do_set_cursor(line, 1),
             (VAR_239, &[line, column]) => self.do_set_cursor(line, column),
+            (VAR_240, &[array]) => self.do_get_cursor(array),
             (VAR_241, &[style]) => self.do_set_text_style(style),
             (VAR_242, _) => (), // set buffering, but does it matter in this day and age?
             (VAR_243, &[number, ref rest @ ..]) => self.do_output_stream(number, rest),
@@ -2146,6 +2147,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
     fn do_set_cursor(&mut self, line: u16, column: u16) {
         self.ui.set_cursor(line, column);
+    }
+
+    fn do_get_cursor(&mut self, array: u16) {
+        // TODO: move cursor to ZMachine state.
     }
 
     // VAR_241

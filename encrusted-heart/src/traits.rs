@@ -35,9 +35,8 @@ impl Default for TextStyle {
 }
 
 pub trait UI {
-    fn print(&mut self, text: &str, style: TextStyle);
+    fn print(&mut self, text: &str, window: Window, style: TextStyle);
     fn debug(&mut self, text: &str);
-    fn print_object(&mut self, object: &str);
     fn set_status_bar(&mut self, left: &str, right: &str);
 
     fn split_window(&mut self, _lines: u16) {}
@@ -53,7 +52,6 @@ pub struct BaseOutput {
 }
 
 pub struct BaseUI {
-    current_window: Window,
     upper_cursor: (usize, usize),
     upper_lines: Vec<Vec<(TextStyle, char)>>,
     requested_height: usize, // https://eblong.com/zarf/glk/quote-box.html
@@ -65,7 +63,6 @@ pub struct BaseUI {
 impl BaseUI {
     pub fn new() -> BaseUI {
         BaseUI {
-            current_window: Window::Lower,
             upper_cursor: (0, 0),
             upper_lines: vec![],
             requested_height: 0,
@@ -104,8 +101,8 @@ impl BaseUI {
 }
 
 impl UI for BaseUI {
-    fn print(&mut self, text: &str, style: TextStyle) {
-        match self.current_window {
+    fn print(&mut self, text: &str, window: Window, style: TextStyle) {
+        match window {
             Window::Lower => match self.output.last_mut() {
                 Some(BaseOutput {
                     style: old_style,
@@ -148,10 +145,6 @@ impl UI for BaseUI {
         eprintln!("Debug text: {}", text)
     }
 
-    fn print_object(&mut self, object: &str) {
-        self.print(object, TextStyle::default());
-    }
-
     fn set_status_bar(&mut self, left: &str, right: &str) {
         self.status_line = Some((left.to_string(), right.to_string()));
     }
@@ -169,17 +162,6 @@ impl UI for BaseUI {
         self.requested_height = requested_lines;
     }
 
-    fn set_window(&mut self, window: Window) {
-        if self.current_window == window {
-            return;
-        }
-        self.current_window = window;
-
-        if window == Window::Upper {
-            self.upper_cursor = (0, 0);
-        }
-    }
-
     fn erase_window(&mut self, window: Window) {
         match window {
             Window::Lower => {
@@ -195,12 +177,10 @@ impl UI for BaseUI {
     }
 
     fn set_cursor(&mut self, line: u16, column: u16) {
-        if self.current_window == Window::Upper {
-            // If this is out of bounds, we'll fix it in `print`.
-            fn to_index(i: u16) -> usize {
-                i.saturating_sub(1) as usize
-            }
-            self.upper_cursor = (to_index(line), to_index(column));
+        // If this is out of bounds, we'll fix it in `print`.
+        fn to_index(i: u16) -> usize {
+            i.saturating_sub(1) as usize
         }
+        self.upper_cursor = (to_index(line), to_index(column));
     }
 }

@@ -150,6 +150,7 @@ pub struct Zmachine<ZUI> {
     disable_output: bool,
     memory_output: Vec<(usize, usize)>,
     current_style: TextStyle,
+    current_window: Window,
     current_font: u16,
 }
 
@@ -223,6 +224,7 @@ impl<ZUI> Zmachine<ZUI> {
             disable_output: false,
             memory_output: vec![],
             current_style: TextStyle::default(),
+            current_window: Window::Lower,
             current_font: 1,
         };
 
@@ -1603,7 +1605,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 };
 
                 if !self.disable_output {
-                    self.ui.print(text, current_style);
+                    self.ui.print(text, self.current_window, current_style);
                 }
             }
             Some((_, end)) => {
@@ -2121,7 +2123,11 @@ impl<ZUI: UI> Zmachine<ZUI> {
             1 => Window::Upper,
             other => panic!("Illegal window number: {}", other),
         };
-        self.ui.set_window(window);
+
+        if self.current_window != Window::Upper && window == Window::Upper {
+            self.ui.set_cursor(1, 1);
+        }
+        self.current_window = window;
     }
 
     // VAR_237
@@ -2146,7 +2152,9 @@ impl<ZUI: UI> Zmachine<ZUI> {
     }
 
     fn do_set_cursor(&mut self, line: u16, column: u16) {
-        self.ui.set_cursor(line, column);
+        if self.current_window == Window::Upper {
+            self.ui.set_cursor(line, column);
+        }
     }
 
     fn do_get_cursor(&mut self, array: u16) {

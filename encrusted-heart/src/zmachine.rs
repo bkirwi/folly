@@ -1606,6 +1606,20 @@ impl<ZUI: UI> Zmachine<ZUI> {
 
                 if !self.disable_output {
                     self.ui.print(text, self.current_window, current_style);
+                    if let Window::Upper(line, col) = &mut self.current_window {
+                        // Somewhat annoyingly redundant with work that the UI code needs to do.
+                        // We could do all the cursor tracking here, but then it's not clear how
+                        // the UI should handle newlines. Maybe a totally distinct write path?
+                        let (l, c) = text.chars().fold((*line, *col), |(l, c), ch| {
+                            if ch == '\n' {
+                                (l + 1, 0)
+                            } else {
+                                (l, c + 1)
+                            }
+                        });
+                        *line = l;
+                        *col = c;
+                    }
                 }
             }
             Some((_, end)) => {
@@ -1944,8 +1958,8 @@ impl<ZUI: UI> Zmachine<ZUI> {
     fn do_restart(&mut self) {
         self.ui.split_window(0);
         self.ui.erase_window(Window::Lower);
-        self.ui.set_cursor(1, 1);
         self.current_style = TextStyle::default();
+        self.current_window = Window::Lower;
         self.disable_output = false;
         self.memory_output.clear();
 
@@ -2120,13 +2134,10 @@ impl<ZUI: UI> Zmachine<ZUI> {
     fn do_set_window(&mut self, window: u16) {
         let window = match window {
             0 => Window::Lower,
-            1 => Window::Upper,
+            1 => Window::Upper(0, 0),
             other => panic!("Illegal window number: {}", other),
         };
 
-        if self.current_window != Window::Upper && window == Window::Upper {
-            self.ui.set_cursor(1, 1);
-        }
         self.current_window = window;
     }
 
@@ -2137,7 +2148,7 @@ impl<ZUI: UI> Zmachine<ZUI> {
                 self.ui.erase_window(Window::Lower);
             }
             1 => {
-                self.ui.erase_window(Window::Upper);
+                self.ui.erase_window(Window::Upper(0, 0));
             }
             -1 => {
                 self.ui.split_window(0);
@@ -2145,20 +2156,28 @@ impl<ZUI: UI> Zmachine<ZUI> {
             }
             -2 => {
                 self.ui.erase_window(Window::Lower);
-                self.ui.erase_window(Window::Upper);
+                self.ui.erase_window(Window::Upper(0, 0));
             }
             other => panic!("Illegal window number: {}", other),
         };
     }
 
     fn do_set_cursor(&mut self, line: u16, column: u16) {
-        if self.current_window == Window::Upper {
-            self.ui.set_cursor(line, column);
+        if let Window::Upper(l, c) = &mut self.current_window {
+            fn to_index(i: u16) -> usize {
+                i.saturating_sub(1) as usize
+            }
+            *l = to_index(line);
+            *c = to_index(column);
         }
     }
 
     fn do_get_cursor(&mut self, array: u16) {
-        // TODO: move cursor to ZMachine state.
+        if let Window::Upper(l, c) = self.current_window {
+            let mut writer = self.memory.get_writer(array as usize);
+            writer.word(l as u16);
+            writer.word(c as u16);
+        }
     }
 
     // VAR_241

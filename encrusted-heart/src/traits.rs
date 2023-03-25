@@ -1,7 +1,7 @@
 #[derive(Ord, PartialOrd, Eq, PartialEq, Debug, Copy, Clone)]
 pub enum Window {
     Lower,
-    Upper,
+    Upper(usize, usize),
 }
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
@@ -42,7 +42,6 @@ pub trait UI {
     fn split_window(&mut self, _lines: u16) {}
     fn set_window(&mut self, _window: Window) {}
     fn erase_window(&mut self, _window: Window) {}
-    fn set_cursor(&mut self, _line: u16, _column: u16) {}
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -52,7 +51,6 @@ pub struct BaseOutput {
 }
 
 pub struct BaseUI {
-    upper_cursor: (usize, usize),
     upper_lines: Vec<Vec<(TextStyle, char)>>,
     requested_height: usize, // https://eblong.com/zarf/glk/quote-box.html
     cleared: bool,
@@ -63,7 +61,6 @@ pub struct BaseUI {
 impl BaseUI {
     pub fn new() -> BaseUI {
         BaseUI {
-            upper_cursor: (0, 0),
             upper_lines: vec![],
             requested_height: 0,
             cleared: true,
@@ -115,13 +112,12 @@ impl UI for BaseUI {
                     content: text.to_string(),
                 }),
             },
-            Window::Upper => {
+            Window::Upper(mut line_number, mut column_number) => {
                 self.resolve_upper_height();
                 for c in text.chars() {
-                    let (line_number, column_number) = self.upper_cursor;
-
                     if c == '\n' {
-                        self.upper_cursor = (line_number + 1, 0);
+                        line_number += 1;
+                        column_number = 0;
                         continue;
                     }
 
@@ -135,7 +131,7 @@ impl UI for BaseUI {
                         line.push((TextStyle::new(0), ' '));
                     }
                     line[column_number] = (style, c);
-                    self.upper_cursor.1 += 1
+                    column_number += 1
                 }
             }
         }
@@ -168,19 +164,11 @@ impl UI for BaseUI {
                 self.cleared = true;
                 self.output.clear();
             }
-            Window::Upper => {
+            Window::Upper(_, _) => {
                 for line in &mut self.upper_lines {
                     line.clear();
                 }
             }
         }
-    }
-
-    fn set_cursor(&mut self, line: u16, column: u16) {
-        // If this is out of bounds, we'll fix it in `print`.
-        fn to_index(i: u16) -> usize {
-            i.saturating_sub(1) as usize
-        }
-        self.upper_cursor = (to_index(line), to_index(column));
     }
 }
